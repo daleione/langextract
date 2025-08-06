@@ -11,6 +11,32 @@ pub enum AlignmentStatus {
     MatchFuzzy,
 }
 
+
+impl AlignmentStatus {
+    pub fn to_string(&self) -> String {
+        match self {
+            AlignmentStatus::MatchExact => "match_exact".to_string(),
+            AlignmentStatus::MatchGreater => "match_greater".to_string(),
+            AlignmentStatus::MatchLesser => "match_lesser".to_string(),
+            AlignmentStatus::MatchFuzzy => "match_fuzzy".to_string(),
+        }
+    }
+}
+
+impl TryFrom<&str> for AlignmentStatus {
+    type Error = String;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        match s {
+            "match_exact" => Ok(AlignmentStatus::MatchExact),
+            "match_greater" => Ok(AlignmentStatus::MatchGreater),
+            "match_lesser" => Ok(AlignmentStatus::MatchLesser),
+            "match_fuzzy" => Ok(AlignmentStatus::MatchFuzzy),
+            _ => Err(format!("Unknown alignment status: {}", s)),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CharInterval {
     pub start_pos: Option<usize>,
@@ -272,5 +298,14 @@ mod tests {
         let example = ExampleData::new("Example text".to_string(), vec![extraction]);
         assert_eq!(example.text, "Example text");
         assert_eq!(example.extractions.len(), 1);
+    }
+
+    #[test]
+    fn test_alignment_status_conversion() {
+        let status_str = AlignmentStatus::MatchExact.to_string();
+        assert_eq!(&status_str, "match_exact");
+
+        let status = AlignmentStatus::try_from("match_fuzzy").unwrap();
+        assert_eq!(status, AlignmentStatus::MatchFuzzy);
     }
 }

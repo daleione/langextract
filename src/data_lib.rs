@@ -1,27 +1,8 @@
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 
-use crate::data::{AlignmentStatus, AnnotatedDocument, AttributeValue, CharInterval, Extraction};
+use crate::data::{ AnnotatedDocument, AttributeValue, CharInterval, Extraction};
 use crate::tokenizer::TokenInterval;
-
-fn alignment_status_to_string(status: &AlignmentStatus) -> String {
-    match status {
-        AlignmentStatus::MatchExact => "match_exact".to_string(),
-        AlignmentStatus::MatchGreater => "match_greater".to_string(),
-        AlignmentStatus::MatchLesser => "match_lesser".to_string(),
-        AlignmentStatus::MatchFuzzy => "match_fuzzy".to_string(),
-    }
-}
-
-fn string_to_alignment_status(s: &str) -> Option<AlignmentStatus> {
-    match s {
-        "match_exact" => Some(AlignmentStatus::MatchExact),
-        "match_greater" => Some(AlignmentStatus::MatchGreater),
-        "match_lesser" => Some(AlignmentStatus::MatchLesser),
-        "match_fuzzy" => Some(AlignmentStatus::MatchFuzzy),
-        _ => None,
-    }
-}
 
 pub fn annotated_document_to_dict(adoc: &AnnotatedDocument) -> Value {
     if adoc.text.is_none() && adoc.extractions.is_none() {
@@ -59,7 +40,7 @@ pub fn annotated_document_to_dict(adoc: &AnnotatedDocument) -> Value {
             if let Some(status) = &ext.alignment_status {
                 ext_map.insert(
                     "alignment_status".to_string(),
-                    Value::String(alignment_status_to_string(status)),
+                    Value::String(status.to_string()),
                 );
             }
 
@@ -118,7 +99,6 @@ pub fn annotated_document_to_dict(adoc: &AnnotatedDocument) -> Value {
     Value::Object(map)
 }
 
-/// 将 JSON/dict 转换回 AnnotatedDocument
 pub fn dict_to_annotated_document(value: &Value) -> AnnotatedDocument {
     if !value.is_object() {
         return AnnotatedDocument::new(None, None, None);
@@ -159,7 +139,7 @@ pub fn dict_to_annotated_document(value: &Value) -> AnnotatedDocument {
                     let alignment_status = ext_obj
                         .get("alignment_status")
                         .and_then(|v| v.as_str())
-                        .and_then(string_to_alignment_status);
+                        .and_then(|s| s.try_into().ok());
 
                     // char_interval
                     let char_interval = ext_obj.get("char_interval").and_then(|ci| {
@@ -237,7 +217,6 @@ mod tests {
 
     #[test]
     fn test_annotated_document_to_dict_and_back() {
-        // 构造 Extraction
         let char_interval = CharInterval::new(Some(0), Some(5));
         let token_interval = TokenInterval {
             start_index: 0,
@@ -294,14 +273,5 @@ mod tests {
         dbg!(&adoc_back);
         assert!(adoc_back.text.is_none());
         assert!(adoc_back.extractions.is_none());
-    }
-
-    #[test]
-    fn test_alignment_status_conversion() {
-        let status_str = alignment_status_to_string(&AlignmentStatus::MatchExact);
-        assert_eq!(status_str, "match_exact");
-
-        let status_enum = string_to_alignment_status("match_fuzzy").unwrap();
-        assert_eq!(status_enum, AlignmentStatus::MatchFuzzy);
     }
 }

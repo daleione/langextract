@@ -1,7 +1,7 @@
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 
-use crate::data::{ AnnotatedDocument, AttributeValue, CharInterval, Extraction};
+use crate::data::{AnnotatedDocument, AttributeValue, CharInterval, Extraction};
 use crate::tokenizer::TokenInterval;
 
 pub fn annotated_document_to_dict(adoc: &AnnotatedDocument) -> Value {
@@ -17,10 +17,7 @@ pub fn annotated_document_to_dict(adoc: &AnnotatedDocument) -> Value {
     }
 
     // document_id
-    map.insert(
-        "document_id".to_string(),
-        Value::String(adoc.clone().document_id()),
-    );
+    map.insert("document_id".to_string(), Value::String(adoc.clone().document_id()));
 
     // extractions
     if let Some(ref extractions) = adoc.extractions {
@@ -38,10 +35,7 @@ pub fn annotated_document_to_dict(adoc: &AnnotatedDocument) -> Value {
 
             // alignment_status
             if let Some(status) = &ext.alignment_status {
-                ext_map.insert(
-                    "alignment_status".to_string(),
-                    Value::String(status.to_string()),
-                );
+                ext_map.insert("alignment_status".to_string(), Value::String(status.to_string()));
             }
 
             // char_interval
@@ -57,16 +51,10 @@ pub fn annotated_document_to_dict(adoc: &AnnotatedDocument) -> Value {
             }
 
             // token_interval
-            if let Some(ref token_interval) = ext.token_interval() {
+            if let Some(token_interval) = ext.token_interval() {
                 let mut ti = Map::new();
-                ti.insert(
-                    "start".to_string(),
-                    Value::Number(token_interval.start_index.into()),
-                );
-                ti.insert(
-                    "end".to_string(),
-                    Value::Number(token_interval.end_index.into()),
-                );
+                ti.insert("start".to_string(), Value::Number(token_interval.start_index.into()));
+                ti.insert("end".to_string(), Value::Number(token_interval.end_index.into()));
                 ext_map.insert("token_interval".to_string(), Value::Object(ti));
             }
 
@@ -81,9 +69,7 @@ pub fn annotated_document_to_dict(adoc: &AnnotatedDocument) -> Value {
                         AttributeValue::Multiple(list) => {
                             attr_map.insert(
                                 k.clone(),
-                                Value::Array(
-                                    list.iter().map(|s| Value::String(s.clone())).collect(),
-                                ),
+                                Value::Array(list.iter().map(|s| Value::String(s.clone())).collect()),
                             );
                         }
                     }
@@ -106,14 +92,8 @@ pub fn dict_to_annotated_document(value: &Value) -> AnnotatedDocument {
 
     let map = value.as_object().unwrap();
 
-    let document_id = map
-        .get("document_id")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-    let text = map
-        .get("text")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    let document_id = map.get("document_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let text = map.get("text").and_then(|v| v.as_str()).map(|s| s.to_string());
 
     let extractions = map
         .get("extractions")
@@ -142,49 +122,38 @@ pub fn dict_to_annotated_document(value: &Value) -> AnnotatedDocument {
                         .and_then(|s| s.try_into().ok());
 
                     // char_interval
-                    let char_interval = ext_obj.get("char_interval").and_then(|ci| {
-                        let start = ci
-                            .get("start_pos")
-                            .and_then(|v| v.as_u64())
-                            .map(|x| x as usize);
-                        let end = ci
-                            .get("end_pos")
-                            .and_then(|v| v.as_u64())
-                            .map(|x| x as usize);
-                        Some(CharInterval::new(start, end))
+                    let char_interval = ext_obj.get("char_interval").map(|ci| {
+                        let start = ci.get("start_pos").and_then(|v| v.as_u64()).map(|x| x as usize);
+                        let end = ci.get("end_pos").and_then(|v| v.as_u64()).map(|x| x as usize);
+                        CharInterval::new(start, end)
                     });
 
                     // token_interval
-                    let token_interval = ext_obj.get("token_interval").and_then(|ti| {
+                    let token_interval = ext_obj.get("token_interval").map(|ti| {
                         let start = ti.get("start").and_then(|v| v.as_u64()).map(|x| x as usize);
                         let end = ti.get("end").and_then(|v| v.as_u64()).map(|x| x as usize);
-                        Some(TokenInterval {
+                        TokenInterval {
                             start_index: start.unwrap(),
                             end_index: end.unwrap(),
-                        })
+                        }
                     });
 
                     // attributes
-                    let attributes = ext_obj.get("attributes").and_then(|attrs| {
+                    let attributes = ext_obj.get("attributes").map(|attrs| {
                         let mut map = HashMap::new();
                         if let Some(obj) = attrs.as_object() {
                             for (k, v) in obj {
                                 if v.is_string() {
-                                    map.insert(
-                                        k.clone(),
-                                        AttributeValue::Single(v.as_str().unwrap().to_string()),
-                                    );
+                                    map.insert(k.clone(), AttributeValue::Single(v.as_str().unwrap().to_string()));
                                 } else if v.is_array() {
                                     let arr = v.as_array().unwrap();
-                                    let vec_str: Vec<String> = arr
-                                        .iter()
-                                        .filter_map(|x| x.as_str().map(|s| s.to_string()))
-                                        .collect();
+                                    let vec_str: Vec<String> =
+                                        arr.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect();
                                     map.insert(k.clone(), AttributeValue::Multiple(vec_str));
                                 }
                             }
                         }
-                        Some(map)
+                        map
                     });
 
                     Some(Extraction::new(
@@ -209,9 +178,7 @@ pub fn dict_to_annotated_document(value: &Value) -> AnnotatedDocument {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::{
-        AlignmentStatus, AnnotatedDocument, AttributeValue, CharInterval, Extraction,
-    };
+    use crate::data::{AlignmentStatus, AnnotatedDocument, AttributeValue, CharInterval, Extraction};
     use crate::tokenizer::TokenInterval;
     use std::collections::HashMap;
 
@@ -223,10 +190,7 @@ mod tests {
             end_index: 2,
         };
         let mut attributes = HashMap::new();
-        attributes.insert(
-            "attr1".to_string(),
-            AttributeValue::Single("value1".to_string()),
-        );
+        attributes.insert("attr1".to_string(), AttributeValue::Single("value1".to_string()));
 
         let extraction = Extraction::new(
             "class1".to_string(),
@@ -247,13 +211,7 @@ mod tests {
         );
 
         let dict = annotated_document_to_dict(&adoc);
-        assert!(
-            dict.get("document_id")
-                .unwrap()
-                .as_str()
-                .unwrap()
-                .starts_with("doc_")
-        );
+        assert!(dict.get("document_id").unwrap().as_str().unwrap().starts_with("doc_"));
 
         let adoc_back = dict_to_annotated_document(&dict);
 

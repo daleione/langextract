@@ -1,3 +1,4 @@
+use std::fmt;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -11,14 +12,13 @@ pub enum AlignmentStatus {
     MatchFuzzy,
 }
 
-
-impl AlignmentStatus {
-    pub fn to_string(&self) -> String {
+impl fmt::Display for AlignmentStatus {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            AlignmentStatus::MatchExact => "match_exact".to_string(),
-            AlignmentStatus::MatchGreater => "match_greater".to_string(),
-            AlignmentStatus::MatchLesser => "match_lesser".to_string(),
-            AlignmentStatus::MatchFuzzy => "match_fuzzy".to_string(),
+            AlignmentStatus::MatchExact => write!(f, "match_exact"),
+            AlignmentStatus::MatchGreater => write!(f, "match_greater"),
+            AlignmentStatus::MatchLesser => write!(f, "match_lesser"),
+            AlignmentStatus::MatchFuzzy => write!(f, "match_fuzzy"),
         }
     }
 }
@@ -69,6 +69,7 @@ pub enum AttributeValue {
 }
 
 impl Extraction {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         extraction_class: String,
         extraction_text: String,
@@ -256,10 +257,7 @@ mod tests {
     #[test]
     fn test_extraction_with_attributes() {
         let mut attributes = HashMap::new();
-        attributes.insert(
-            "key1".to_string(),
-            AttributeValue::Single("value1".to_string()),
-        );
+        attributes.insert("key1".to_string(), AttributeValue::Single("value1".to_string()));
         attributes.insert(
             "key2".to_string(),
             AttributeValue::Multiple(vec!["v1".to_string(), "v2".to_string()]),

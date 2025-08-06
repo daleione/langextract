@@ -5,18 +5,14 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum TokenizerError {
-    #[error(
-        "Invalid token interval. start_index={start_index}, end_index={end_index}, total_tokens={total_tokens}."
-    )]
+    #[error("Invalid token interval. start_index={start_index}, end_index={end_index}, total_tokens={total_tokens}.")]
     InvalidTokenInterval {
         start_index: usize,
         end_index: usize,
         total_tokens: usize,
     },
 
-    #[error(
-        "SentenceRangeError: start_token_index={start_token_index} out of range. Total tokens: {total_tokens}."
-    )]
+    #[error("SentenceRangeError: start_token_index={start_token_index} out of range. Total tokens: {total_tokens}.")]
     SentenceRangeError {
         start_token_index: usize,
         total_tokens: usize,
@@ -124,12 +120,8 @@ pub fn tokenize(text: &str) -> TokenizedText {
 }
 
 /// Reconstruct substring from token interval
-pub fn tokens_text(
-    tokenized_text: &TokenizedText,
-    token_interval: &TokenInterval,
-) -> Result<String, TokenizerError> {
-    if token_interval.start_index >= token_interval.end_index
-        || token_interval.end_index > tokenized_text.tokens.len()
+pub fn tokens_text(tokenized_text: &TokenizedText, token_interval: &TokenInterval) -> Result<String, TokenizerError> {
+    if token_interval.start_index >= token_interval.end_index || token_interval.end_index > tokenized_text.tokens.len()
     {
         return Err(TokenizerError::InvalidTokenInterval {
             start_index: token_interval.start_index,
@@ -141,21 +133,17 @@ pub fn tokens_text(
     let start_token = &tokenized_text.tokens[token_interval.start_index];
     let end_token = &tokenized_text.tokens[token_interval.end_index - 1];
 
-    Ok(
-        tokenized_text.text[start_token.char_interval.start_pos..end_token.char_interval.end_pos]
-            .to_string(),
-    )
+    Ok(tokenized_text.text[start_token.char_interval.start_pos..end_token.char_interval.end_pos].to_string())
 }
 
 /// Determine if token is end of sentence
 fn is_end_of_sentence_token(text: &str, tokens: &[Token], current_idx: usize) -> bool {
-    let token_text = &text
-        [tokens[current_idx].char_interval.start_pos..tokens[current_idx].char_interval.end_pos];
+    let token_text = &text[tokens[current_idx].char_interval.start_pos..tokens[current_idx].char_interval.end_pos];
 
     if END_OF_SENTENCE_REGEX.is_match(token_text) {
         if current_idx > 0 {
-            let prev_token_text = &text[tokens[current_idx - 1].char_interval.start_pos
-                ..tokens[current_idx - 1].char_interval.end_pos];
+            let prev_token_text =
+                &text[tokens[current_idx - 1].char_interval.start_pos..tokens[current_idx - 1].char_interval.end_pos];
             let combined = format!("{}{}", prev_token_text, token_text);
             if KNOWN_ABBREVIATIONS.contains(combined.as_str()) {
                 return false;
@@ -172,15 +160,14 @@ fn is_sentence_break_after_newline(text: &str, tokens: &[Token], current_idx: us
         return false;
     }
 
-    let gap_text = &text[tokens[current_idx].char_interval.end_pos
-        ..tokens[current_idx + 1].char_interval.start_pos];
+    let gap_text = &text[tokens[current_idx].char_interval.end_pos..tokens[current_idx + 1].char_interval.start_pos];
 
     if !gap_text.contains('\n') {
         return false;
     }
 
-    let next_token_text = &text[tokens[current_idx + 1].char_interval.start_pos
-        ..tokens[current_idx + 1].char_interval.end_pos];
+    let next_token_text =
+        &text[tokens[current_idx + 1].char_interval.start_pos..tokens[current_idx + 1].char_interval.end_pos];
     !next_token_text.is_empty() && next_token_text.chars().next().unwrap().is_uppercase()
 }
 
@@ -199,13 +186,11 @@ pub fn find_sentence_range(
 
     let mut i = start_token_index;
     while i < tokens.len() {
-        if tokens[i].token_type == TokenType::Punctuation {
-            if is_end_of_sentence_token(text, tokens, i) {
-                return Ok(TokenInterval {
-                    start_index: start_token_index,
-                    end_index: i + 1,
-                });
-            }
+        if tokens[i].token_type == TokenType::Punctuation && is_end_of_sentence_token(text, tokens, i) {
+            return Ok(TokenInterval {
+                start_index: start_token_index,
+                end_index: i + 1,
+            });
         }
 
         if is_sentence_break_after_newline(text, tokens, i) {
@@ -235,8 +220,7 @@ mod tests {
 
         assert!(!tokenized.tokens.is_empty());
         assert_eq!(
-            &text[tokenized.tokens[0].char_interval.start_pos
-                ..tokenized.tokens[0].char_interval.end_pos],
+            &text[tokenized.tokens[0].char_interval.start_pos..tokenized.tokens[0].char_interval.end_pos],
             "Dr"
         );
         assert_eq!(tokenized.tokens[0].token_type, TokenType::Word);
@@ -266,8 +250,7 @@ mod tests {
         let sentence1 = tokens_text(&tokenized, &range1).unwrap();
         assert_eq!(sentence1, "Hello world!");
 
-        let range2 =
-            find_sentence_range(&tokenized.text, &tokenized.tokens, range1.end_index).unwrap();
+        let range2 = find_sentence_range(&tokenized.text, &tokenized.tokens, range1.end_index).unwrap();
         dbg!(&range2);
         let sentence2 = tokens_text(&tokenized, &range2).unwrap();
         assert_eq!(sentence2, "This is Rust.");

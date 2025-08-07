@@ -243,15 +243,12 @@ mod tests {
     fn test_find_sentence_range() {
         let text = "Hello world! This is Rust.";
         let tokenized = tokenize(text);
-        dbg!(&tokenized.tokens);
 
         let range1 = find_sentence_range(&tokenized.text, &tokenized.tokens, 0).unwrap();
-        dbg!(&range1);
         let sentence1 = tokens_text(&tokenized, &range1).unwrap();
         assert_eq!(sentence1, "Hello world!");
 
         let range2 = find_sentence_range(&tokenized.text, &tokenized.tokens, range1.end_index).unwrap();
-        dbg!(&range2);
         let sentence2 = tokens_text(&tokenized, &range2).unwrap();
         assert_eq!(sentence2, "This is Rust.");
     }

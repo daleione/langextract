@@ -225,10 +225,7 @@ mod tests {
         let dict = annotated_document_to_dict(&adoc);
         assert!(dict.as_object().unwrap().is_empty());
 
-        dbg!(&adoc);
-        dbg!(&dict);
         let adoc_back = dict_to_annotated_document(&dict);
-        dbg!(&adoc_back);
         assert!(adoc_back.text.is_none());
         assert!(adoc_back.extractions.is_none());
     }

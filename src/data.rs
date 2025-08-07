@@ -1,5 +1,5 @@
-use std::fmt;
 use std::collections::HashMap;
+use std::fmt;
 use uuid::Uuid;
 
 use crate::tokenizer::{TokenInterval, TokenizedText, tokenize};

@@ -3,3 +3,5 @@ pub mod data_lib;
 pub mod schema;
 pub mod tokenizer;
 pub mod progress;
+pub mod io;
+pub mod error;

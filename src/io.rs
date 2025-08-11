@@ -53,14 +53,14 @@ pub fn download(url: &str) -> Result<Box<dyn Read>, IoError> {
     }
 
     let mut temp_file = NamedTempFile::new()?;
-    let mut content = response.bytes()?;
-    temp_file.write_all(&mut content)?;
+    let content = response.bytes()?;
+    temp_file.write_all(&content)?;
     temp_file.flush()?;
 
     let path = temp_file.path().to_path_buf();
     let file = File::open(&path)?;
 
-    if path.extension().map_or(false, |ext| ext == "gz") {
+    if path.extension().is_some_and(|ext| ext == "gz") {
         Ok(Box::new(BufReader::new(GzDecoder::new(file))))
     } else {
         Ok(Box::new(BufReader::new(file)))

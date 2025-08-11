@@ -134,7 +134,7 @@ pub fn print_extraction_summary(
 /// * `output_path` - Output file path
 /// * `disable` - Whether to disable progress bar
 pub fn create_save_progress_bar(output_path: &str, disable: bool) -> ProgressBar {
-    let filename = output_path.split('/').last().unwrap_or("unknown");
+    let filename = output_path.split('/').next_back().unwrap_or("unknown");
     let pb = ProgressBar::new_spinner()
         .with_prefix(format!(
             "{}{}LangExtract{}: Saving to {}{}{}",
@@ -158,7 +158,7 @@ pub fn create_load_progress_bar(
     total_size: Option<u64>,
     disable: bool,
 ) -> ProgressBar {
-    let filename = file_path.split('/').last().unwrap_or("unknown");
+    let filename = file_path.split('/').next_back().unwrap_or("unknown");
     let pb = if let Some(size) = total_size {
         ProgressBar::new(size).with_style(
             ProgressStyle::with_template(&format!(
@@ -230,7 +230,7 @@ fn truncate_url(url: &str, max_length: usize) -> String {
         |url| {
             let domain = url.host_str().map_or("unknown", |h| h).to_string();
             let filename = url.path_segments()
-                .and_then(|s| s.last())
+                .and_then(|mut s| s.next_back())
                 .unwrap_or("file")
                 .to_string();
             (domain, filename)

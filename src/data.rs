@@ -175,11 +175,10 @@ impl AnnotatedDocument {
     }
 
     pub fn tokenized_text(&mut self) -> Option<&TokenizedText> {
-        if self.tokenized_text.is_none() {
-            if let Some(ref text) = self.text {
+        if self.tokenized_text.is_none()
+            && let Some(ref text) = self.text {
                 self.tokenized_text = Some(tokenize(text));
             }
-        }
         self.tokenized_text.as_ref()
     }
 

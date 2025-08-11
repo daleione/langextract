@@ -6,3 +6,4 @@ pub mod progress;
 pub mod io;
 pub mod error;
 pub mod visualization;
+pub mod prompting;

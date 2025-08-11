@@ -253,7 +253,7 @@ fn filter_valid_extractions(extractions: &[Extraction]) -> Vec<&Extraction> {
     extractions
         .iter()
         .filter(|e| {
-            e.char_interval.as_ref().map_or(false, |interval| {
+            e.char_interval.as_ref().is_some_and(|interval| {
                 interval.start_pos.is_some()
                     && interval.end_pos.is_some()
                     && interval.start_pos.unwrap() < interval.end_pos.unwrap()

@@ -8,3 +8,4 @@ pub mod error;
 pub mod visualization;
 pub mod prompting;
 pub mod resolver;
+pub mod inference;

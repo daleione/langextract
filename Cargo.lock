@@ -765,8 +765,10 @@ dependencies = [
 name = "langextract"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "console",
  "flate2",
+ "futures",
  "html-escape",
  "indicatif",
  "itertools",

@@ -140,7 +140,7 @@ impl<L: BaseLanguageModel> Annotator<L> {
     /// Annotates a sequence of documents with NLP extractions.
     /// Breaks documents into chunks, processes them into prompts and performs
     /// batched inference, mapping annotated extractions back to the original document.
-    pub fn annotate_documents(
+    pub async fn annotate_documents(
         &self,
         documents: Vec<Document>,
         resolver: &dyn AbstractResolver,
@@ -152,6 +152,7 @@ impl<L: BaseLanguageModel> Annotator<L> {
     ) -> Result<Vec<AnnotatedDocument>, InferenceOutputError> {
         if extraction_passes == 1 {
             self.annotate_documents_single_pass(documents, resolver, max_char_buffer, batch_length, debug, extra_args)
+                .await
         } else {
             self.annotate_documents_sequential_passes(
                 documents,
@@ -162,11 +163,12 @@ impl<L: BaseLanguageModel> Annotator<L> {
                 extraction_passes,
                 extra_args,
             )
+            .await
         }
     }
 
     /// Single-pass annotation logic (original implementation).
-    fn annotate_documents_single_pass(
+    async fn annotate_documents_single_pass(
         &self,
         documents: Vec<Document>,
         resolver: &dyn AbstractResolver,
@@ -211,8 +213,8 @@ impl<L: BaseLanguageModel> Annotator<L> {
                 // progress bar description update not implemented
             }
 
-            // infer is async, so we need to block here for demonstration (in real code, use async/await)
-            let batch_scored_outputs = futures::executor::block_on(self.language_model.infer(&batch_prompts, None))?;
+            // infer is async
+            let batch_scored_outputs = self.language_model.infer(&batch_prompts, None).await?;
 
             // Update total processed
             if debug {
@@ -336,7 +338,7 @@ impl<L: BaseLanguageModel> Annotator<L> {
     }
 
     /// Sequential extraction passes logic for improved recall.
-    fn annotate_documents_sequential_passes(
+    async fn annotate_documents_sequential_passes(
         &self,
         documents: Vec<Document>,
         resolver: &dyn AbstractResolver,
@@ -356,14 +358,16 @@ impl<L: BaseLanguageModel> Annotator<L> {
 
         for pass_num in 0..extraction_passes {
             println!("Starting extraction pass {} of {}", pass_num + 1, extraction_passes);
-            let annotated_docs = self.annotate_documents_single_pass(
-                document_list.clone(),
-                resolver,
-                max_char_buffer,
-                batch_length,
-                debug && pass_num == 0,
-                extra_args.clone(),
-            )?;
+            let annotated_docs = self
+                .annotate_documents_single_pass(
+                    document_list.clone(),
+                    resolver,
+                    max_char_buffer,
+                    batch_length,
+                    debug && pass_num == 0,
+                    extra_args.clone(),
+                )
+                .await?;
             for mut annotated_doc in annotated_docs {
                 let doc_id = annotated_doc.document_id().clone();
                 document_extractions_by_pass
@@ -400,7 +404,7 @@ impl<L: BaseLanguageModel> Annotator<L> {
     }
 
     /// Annotates text with NLP extractions for text input.
-    pub fn annotate_text(
+    pub async fn annotate_text(
         &self,
         text: &str,
         resolver: &dyn AbstractResolver,
@@ -413,15 +417,17 @@ impl<L: BaseLanguageModel> Annotator<L> {
     ) -> Result<AnnotatedDocument, InferenceOutputError> {
         let start_time = if debug { Some(Instant::now()) } else { None };
         let document = Document::new(text.to_string(), None, additional_context.map(|s| s.to_string()));
-        let mut annotations = self.annotate_documents(
-            vec![document],
-            resolver,
-            max_char_buffer,
-            batch_length,
-            debug,
-            extraction_passes,
-            extra_args,
-        )?;
+        let mut annotations = self
+            .annotate_documents(
+                vec![document],
+                resolver,
+                max_char_buffer,
+                batch_length,
+                debug,
+                extraction_passes,
+                extra_args,
+            )
+            .await?;
         assert_eq!(
             annotations.len(),
             1,

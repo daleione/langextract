@@ -16,7 +16,8 @@ use langextract::{
     resolver::Resolver,
 };
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 LangExtract Getting Started Example");
     println!("======================================\n");
 
@@ -58,7 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✅ Annotator created");
 
     // Step 5: Create a resolver
-    let resolver = Resolver::new(true, None, None, false);
+    let resolver = Resolver::new(true, None, None, true);
 
     println!("✅ Resolver created");
 
@@ -71,15 +72,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Step 7: Run the extraction
     let document = Document::new(text.to_string(), Some("getting_started".to_string()), None);
 
-    let results = annotator.annotate_documents(
-        vec![document],
-        &resolver,
-        1000, // max characters per chunk
-        1,    // batch size
-        true, // enable debug output
-        1,    // number of extraction passes
-        None, // no extra arguments
-    )?;
+    let results = annotator
+        .annotate_documents(
+            vec![document],
+            &resolver,
+            1000, // max characters per chunk
+            1,    // batch size
+            true, // enable debug output
+            1,    // number of extraction passes
+            None, // no extra arguments
+        )
+        .await?;
 
     // Step 8: Display the results
     println!("\n🎉 Extraction Results:");

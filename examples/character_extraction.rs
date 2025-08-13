@@ -13,7 +13,8 @@ use langextract::{
     resolver::Resolver,
 };
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Define the prompt and extraction rules
     let prompt_description = r#"
 Extract characters, emotions, and relationships in order of appearance.
@@ -102,15 +103,17 @@ Provide meaningful attributes for each entity to add context.
 
     let document = Document::new(input_text.to_string(), Some("example_doc".to_string()), None);
 
-    let results = annotator.annotate_documents(
-        vec![document],
-        &resolver,
-        2000, // max_char_buffer
-        1,    // batch_length
-        true, // debug
-        1,    // extraction_passes
-        None, // extra_args
-    )?;
+    let results = annotator
+        .annotate_documents(
+            vec![document],
+            &resolver,
+            2000, // max_char_buffer
+            1,    // batch_length
+            true, // debug
+            1,    // extraction_passes
+            None, // extra_args
+        )
+        .await?;
 
     let result = &results[0];
 

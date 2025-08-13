@@ -162,11 +162,7 @@ pub type ResolverResult<T> = Result<T, ResolverError>;
 
 /// AbstractResolver trait (mirrors abstract base class behavior).
 pub trait AbstractResolver {
-    fn resolve(
-        &self,
-        input_text: &str,
-        suppress_parse_errors: bool,
-    ) -> ResolverResult<Vec<data::Extraction>>;
+    fn resolve(&self, input_text: &str, suppress_parse_errors: bool) -> ResolverResult<Vec<data::Extraction>>;
 
     fn align(
         &self,
@@ -243,11 +239,12 @@ impl Resolver {
         let left_key = if self.format_is_yaml { "```yaml" } else { "```json" };
 
         if let Some(start) = input_string.find(left_key)
-            && let Some(end) = input_string[start + left_key.len()..].find("```") {
-                let content_start = start + left_key.len();
-                let content_end = content_start + end;
-                return Ok(input_string[content_start..content_end].trim().to_string());
-            }
+            && let Some(end) = input_string[start + left_key.len()..].find("```")
+        {
+            let content_start = start + left_key.len();
+            let content_end = content_start + end;
+            return Ok(input_string[content_start..content_end].trim().to_string());
+        }
 
         Err(ResolverError::Parse(
             "Input string does not contain valid markers.".to_string(),
@@ -255,39 +252,65 @@ impl Resolver {
     }
 
     /// string_to_extraction_data: ensure mapping with "extractions": [...]
-    fn string_to_extraction_data(
-        &self,
-        input_string: &str,
-    ) -> ResolverResult<Vec<HashMap<String, JsonValue>>> {
+    fn string_to_extraction_data(&self, input_string: &str) -> ResolverResult<Vec<HashMap<String, JsonValue>>> {
         let parsed = self.extract_and_parse_content(input_string)?;
 
-        let obj = parsed.as_object()
-            .ok_or_else(|| ResolverError::Parse(
-                "Content must be a mapping with an 'extractions' key.".to_string()
-            ))?;
+        // Handle both simple array format and structured format
+        if let Some(array) = parsed.as_array() {
+            // Simple array format: ["item1", "item2", ...]
+            // Convert to single group with multiple extractions using "text" as key
+            let mut single_group = HashMap::new();
+            for (index, item) in array.iter().enumerate() {
+                let key = if array.len() == 1 {
+                    "text".to_string()
+                } else {
+                    format!("text_{}", index)
+                };
 
-        let extractions = obj.get(schema::EXTRACTIONS_KEY)
-            .ok_or_else(|| ResolverError::Parse(
-                "Content must contain an 'extractions' key.".to_string()
-            ))?;
+                if let Some(text) = item.as_str() {
+                    single_group.insert(key, JsonValue::String(text.to_string()));
+                } else {
+                    single_group.insert(key, item.clone());
+                }
+            }
+            return Ok(vec![single_group]);
+        }
 
-        let arr = extractions.as_array()
-            .ok_or_else(|| ResolverError::Parse(
-                "The 'extractions' value must be a sequence (list).".to_string()
-            ))?;
+        let arr = if let Some(obj) = parsed.as_object() {
+            // Structured format: {"extractions": ["item1", "item2", ...]}
+            let extractions = obj
+                .get(schema::EXTRACTIONS_KEY)
+                .ok_or_else(|| ResolverError::Parse("Content must contain an 'extractions' key.".to_string()))?;
+
+            extractions
+                .as_array()
+                .ok_or_else(|| ResolverError::Parse("The 'extractions' value must be a sequence (list).".to_string()))?
+        } else {
+            return Err(ResolverError::Parse(
+                "Content must be either an array or a mapping with an 'extractions' key.".to_string(),
+            ));
+        };
 
         let mut result = Vec::with_capacity(arr.len());
         for item in arr {
-            let map = item.as_object()
-                .ok_or_else(|| ResolverError::Parse(
-                    "Each item in extractions must be a mapping.".to_string()
-                ))?;
-
-            let mut hm = HashMap::with_capacity(map.len());
-            for (k, v) in map {
-                hm.insert(k.clone(), v.clone());
+            if let Some(map) = item.as_object() {
+                // Item is already a mapping
+                let mut hm = HashMap::with_capacity(map.len());
+                for (k, v) in map {
+                    hm.insert(k.clone(), v.clone());
+                }
+                result.push(hm);
+            } else if let Some(text) = item.as_str() {
+                // Item is a simple string, convert to extraction format
+                let mut hm = HashMap::new();
+                hm.insert("text".to_string(), JsonValue::String(text.to_string()));
+                result.push(hm);
+            } else {
+                // Item is some other type, convert to string
+                let mut hm = HashMap::new();
+                hm.insert("text".to_string(), item.clone());
+                result.push(hm);
             }
-            result.push(hm);
         }
         Ok(result)
     }
@@ -307,9 +330,7 @@ impl Resolver {
             if let Some(suf) = index_suffix {
                 for (key, value) in group {
                     if key.ends_with(suf) && !value.is_number() {
-                        return Err(ResolverError::Other(
-                            "Index values must be integers.".to_string(),
-                        ));
+                        return Err(ResolverError::Other("Index values must be integers.".to_string()));
                     }
                 }
             }
@@ -318,27 +339,22 @@ impl Resolver {
             for (key, value) in group {
                 // Skip index and attributes keys
                 if let Some(suf) = index_suffix
-                    && key.ends_with(suf) {
-                        continue;
-                    }
+                    && key.ends_with(suf)
+                {
+                    continue;
+                }
                 if let Some(suf) = attributes_suffix
-                    && key.ends_with(suf) {
-                        continue;
-                    }
+                    && key.ends_with(suf)
+                {
+                    continue;
+                }
 
                 let text_val = self.convert_to_text(value)?;
-                let extraction_index = self.get_extraction_index(
-                    group, key, index_suffix, &mut default_index_counter
-                )?;
+                let extraction_index =
+                    self.get_extraction_index(group, key, index_suffix, &mut default_index_counter)?;
                 let attributes = self.get_attributes(group, key, attributes_suffix)?;
 
-                let ext = data::Extraction::new(
-                    key.clone(),
-                    text_val,
-                    extraction_index,
-                    group_index,
-                    attributes,
-                );
+                let ext = data::Extraction::new(key.clone(), text_val, extraction_index, group_index, attributes);
                 processed.push(ext);
             }
         }
@@ -354,11 +370,9 @@ impl Resolver {
             JsonValue::Number(n) => Ok(n.to_string()),
             JsonValue::Bool(b) => Ok(b.to_string()),
             JsonValue::Null => Ok(String::new()),
-            JsonValue::Array(_) | JsonValue::Object(_) => {
-                Err(ResolverError::Other(
-                    "Extraction text must be string or number.".to_string(),
-                ))
-            }
+            JsonValue::Array(_) | JsonValue::Object(_) => Err(ResolverError::Other(
+                "Extraction text must be string or number.".to_string(),
+            )),
         }
     }
 
@@ -372,11 +386,10 @@ impl Resolver {
         if let Some(suf) = index_suffix {
             let index_key = format!("{}{}", key, suf);
             if let Some(idx_val) = group.get(&index_key) {
-                return idx_val.as_u64()
+                return idx_val
+                    .as_u64()
                     .map(|n| n as usize)
-                    .ok_or_else(|| ResolverError::Other(
-                        "Index must be integer.".to_string()
-                    ));
+                    .ok_or_else(|| ResolverError::Other("Index must be integer.".to_string()));
             }
         }
 
@@ -406,10 +419,7 @@ impl Resolver {
     }
 
     /// Public entry: parse string -> ordered extractions
-    pub fn parse_extractions_from_string(
-        &self,
-        input: &str,
-    ) -> ResolverResult<Vec<data::Extraction>> {
+    pub fn parse_extractions_from_string(&self, input: &str) -> ResolverResult<Vec<data::Extraction>> {
         let parsed = self.string_to_extraction_data(input)?;
         let processed = self.extract_ordered_extractions_impl(&parsed)?;
         Ok(processed)
@@ -417,11 +427,7 @@ impl Resolver {
 }
 
 impl AbstractResolver for Resolver {
-    fn resolve(
-        &self,
-        input_text: &str,
-        suppress_parse_errors: bool,
-    ) -> ResolverResult<Vec<data::Extraction>> {
+    fn resolve(&self, input_text: &str, suppress_parse_errors: bool) -> ResolverResult<Vec<data::Extraction>> {
         match self.string_to_extraction_data(input_text) {
             Ok(parsed) => self.extract_ordered_extractions_impl(&parsed),
             Err(e) => {
@@ -487,11 +493,7 @@ impl WordAligner {
         _accept_match_lesser: bool,
     ) -> Vec<Vec<data::Extraction>> {
         let source_tokenized = tokenizer::tokenize(source_text);
-        let source_tokens: Vec<String> = source_tokenized
-            .tokens
-            .iter()
-            .map(|t| t.text.to_lowercase())
-            .collect();
+        let source_tokens: Vec<String> = source_tokenized.tokens.iter().map(|t| t.text.to_lowercase()).collect();
 
         let mut aligned_groups = vec![Vec::new(); extraction_groups.len()];
 
@@ -548,21 +550,19 @@ impl WordAligner {
 
         // Try fuzzy match if enabled
         if enable_fuzzy_alignment
-            && let Some((start_idx, window_size)) = self.find_fuzzy_match(
-                &ext_tokens,
-                source_tokens,
-                fuzzy_alignment_threshold,
-            ) {
-                return self.create_aligned_extraction(
-                    extraction,
-                    start_idx,
-                    window_size,
-                    source_tokenized,
-                    token_offset,
-                    char_offset,
-                    data::AlignmentStatus::MatchFuzzy,
-                );
-            }
+            && let Some((start_idx, window_size)) =
+                self.find_fuzzy_match(&ext_tokens, source_tokens, fuzzy_alignment_threshold)
+        {
+            return self.create_aligned_extraction(
+                extraction,
+                start_idx,
+                window_size,
+                source_tokenized,
+                token_offset,
+                char_offset,
+                data::AlignmentStatus::MatchFuzzy,
+            );
+        }
 
         // No alignment found
         extraction.clone()
@@ -615,18 +615,10 @@ impl WordAligner {
             }
         }
 
-        if best_ratio >= threshold {
-            best_span
-        } else {
-            None
-        }
+        if best_ratio >= threshold { best_span } else { None }
     }
 
-    fn calculate_overlap(
-        &self,
-        ext_counts: &HashMap<String, usize>,
-        window_tokens: &[String],
-    ) -> usize {
+    fn calculate_overlap(&self, ext_counts: &HashMap<String, usize>, window_tokens: &[String]) -> usize {
         let mut window_counts = HashMap::new();
         for token in window_tokens {
             *window_counts.entry(token.clone()).or_insert(0usize) += 1;
@@ -696,7 +688,12 @@ mod tests {
 
     #[test]
     fn test_parse_json_string() {
-        let resolver = Resolver::new(false, Some("_index".to_string()), Some("_attributes".to_string()), false);
+        let resolver = Resolver::new(
+            false,
+            Some("_index".to_string()),
+            Some("_attributes".to_string()),
+            false,
+        );
         let json = r#"{
             "extractions": [
                 {"person": "Alice", "person_index": 1},
@@ -722,7 +719,12 @@ mod tests {
 
     #[test]
     fn test_extract_ordering_and_attributes() {
-        let resolver = Resolver::new(false, Some("_index".to_string()), Some("_attributes".to_string()), false);
+        let resolver = Resolver::new(
+            false,
+            Some("_index".to_string()),
+            Some("_attributes".to_string()),
+            false,
+        );
         let json = r#"{
             "extractions":[
                 {"name":"X", "name_index":5, "name_attributes": {"role":"admin"}},
@@ -740,13 +742,7 @@ mod tests {
     #[test]
     fn test_alignment_exact() {
         let resolver = Resolver::new(false, None, None, false);
-        let ex = data::Extraction::new(
-            "person".to_string(),
-            "Alice went".to_string(),
-            1,
-            0,
-            None,
-        );
+        let ex = data::Extraction::new("person".to_string(), "Alice went".to_string(), 1, 0, None);
         let source = "Alice went to the market.";
         let aligned = resolver.align(&[ex], source, 0, Some(0), true, 0.75, true);
 
@@ -785,8 +781,52 @@ mod tests {
 
     #[test]
     fn test_invalid_json() {
-        let resolver = Resolver::default();
+        let resolver = Resolver::new(false, None, None, false);
         let result = resolver.parse_extractions_from_string("invalid json");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_simple_yaml_array() {
+        let resolver = Resolver::new(true, None, None, true);
+        let yaml = r#"```yaml
+- Alice
+- Bob
+- Charlie
+```"#;
+        let result = resolver.parse_extractions_from_string(yaml).unwrap();
+        assert_eq!(result.len(), 3);
+
+        // Check that we got the expected names (in any order)
+        let texts: Vec<&str> = result.iter().map(|e| e.extraction_text.as_str()).collect();
+        assert!(texts.contains(&"Alice"));
+        assert!(texts.contains(&"Bob"));
+        assert!(texts.contains(&"Charlie"));
+
+        // Check that all have the expected class prefix
+        for extraction in &result {
+            assert!(extraction.extraction_class.starts_with("text"));
+        }
+    }
+
+    #[test]
+    fn test_parse_simple_json_array() {
+        let resolver = Resolver::new(true, None, None, false);
+        let json = r#"```json
+["Alice", "Bob", "Charlie"]
+```"#;
+        let result = resolver.parse_extractions_from_string(json).unwrap();
+        assert_eq!(result.len(), 3);
+
+        // Check that we got the expected names (in any order)
+        let texts: Vec<&str> = result.iter().map(|e| e.extraction_text.as_str()).collect();
+        assert!(texts.contains(&"Alice"));
+        assert!(texts.contains(&"Bob"));
+        assert!(texts.contains(&"Charlie"));
+
+        // Check that all have the expected class prefix
+        for extraction in &result {
+            assert!(extraction.extraction_class.starts_with("text"));
+        }
     }
 }

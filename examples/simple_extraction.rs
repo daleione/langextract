@@ -12,7 +12,8 @@ use langextract::{
     resolver::Resolver,
 };
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Define the prompt description
     let prompt_description = r#"
 Extract important entities from the text including:
@@ -67,15 +68,17 @@ Extract the exact text as it appears. Provide one attribute per extraction.
     // In a real async environment, you'd use .await
     let document = langextract::data::Document::new(input_text.to_string(), Some("simple_example".to_string()), None);
 
-    let result = annotator.annotate_documents(
-        vec![document],
-        &resolver,
-        1000, // max_char_buffer
-        1,    // batch_length
-        true, // debug
-        1,    // extraction_passes
-        None, // extra_args
-    )?;
+    let result = annotator
+        .annotate_documents(
+            vec![document],
+            &resolver,
+            1000, // max_char_buffer
+            1,    // batch_length
+            true, // debug
+            1,    // extraction_passes
+            None, // extra_args
+        )
+        .await?;
 
     let result = &result[0];
 

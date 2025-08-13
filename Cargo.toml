@@ -10,7 +10,7 @@ license = "MIT"
 lazy_static = "1.5.0"
 regex = "1.11.1"
 thiserror = "2.0.12"
-uuid = { version="1.17.0", features = ["v4"] }
+uuid = { version = "1.17.0", features = ["v4"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 url = "2.5.4"
@@ -25,6 +25,7 @@ serde_yaml = "0.9.34"
 itertools = "0.14.0"
 async-trait = "0.1.88"
 futures = "0.3.31"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 
 [dev-dependencies]
@@ -32,3 +33,16 @@ tempfile = "3"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 wiremock = "0.6"
+
+# Examples dependencies
+[[example]]
+name = "simple_extraction"
+path = "examples/simple_extraction.rs"
+
+[[example]]
+name = "character_extraction"
+path = "examples/character_extraction.rs"
+
+[[example]]
+name = "getting_started"
+path = "examples/getting_started.rs"

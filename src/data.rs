@@ -37,7 +37,7 @@ impl TryFrom<&str> for AlignmentStatus {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CharInterval {
     pub start_pos: Option<usize>,
     pub end_pos: Option<usize>,
@@ -176,9 +176,10 @@ impl AnnotatedDocument {
 
     pub fn tokenized_text(&mut self) -> Option<&TokenizedText> {
         if self.tokenized_text.is_none()
-            && let Some(ref text) = self.text {
-                self.tokenized_text = Some(tokenize(text));
-            }
+            && let Some(ref text) = self.text
+        {
+            self.tokenized_text = Some(tokenize(text));
+        }
         self.tokenized_text.as_ref()
     }
 

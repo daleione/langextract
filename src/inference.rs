@@ -76,7 +76,6 @@ pub trait BaseLanguageModel: Send + Sync {
     ) -> std::result::Result<Vec<Vec<ScoredOutput>>, InferenceOutputError>;
 }
 
-
 /// Language model inference using OpenAI's API with structured output.
 #[derive(Debug, Clone)]
 pub struct OpenAILanguageModel {
@@ -361,7 +360,6 @@ impl BaseLanguageModel for DeepSeekLanguageModel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     #[test]
     fn test_scored_output_creation() {

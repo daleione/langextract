@@ -56,10 +56,12 @@ pub struct TokenizedText {
 lazy_static! {
     static ref DIGITS_REGEX: Regex = Regex::new(r"[0-9]+").unwrap();
     static ref SLASH_ABBREV_REGEX: Regex = Regex::new(r"[A-Za-z0-9]+(?:/[A-Za-z0-9]+)+").unwrap();
-    static ref END_OF_SENTENCE_REGEX: Regex = Regex::new(r"[.?!]$").unwrap();
+    static ref END_OF_SENTENCE_REGEX: Regex = Regex::new(r"[.?!。？！]$").unwrap();
     static ref TOKEN_REGEX: Regex =
-        Regex::new(r"[A-Za-z0-9]+(?:/[A-Za-z0-9]+)+|[A-Za-z]+|[0-9]+|[^A-Za-z0-9\s]+").unwrap();
-    static ref WORD_REGEX: Regex = Regex::new(r"(?:[A-Za-z]+|[0-9]+)\b").unwrap();
+        Regex::new(r"[A-Za-z0-9]+(?:/[A-Za-z0-9]+)+|[\u4e00-\u9fff]+|[A-Za-z]+|[0-9]+|[^\u4e00-\u9fffA-Za-z0-9\s]+")
+            .unwrap();
+    static ref WORD_REGEX: Regex = Regex::new(r"(?:[\u4e00-\u9fff]+|[A-Za-z]+|[0-9]+)\b").unwrap();
+    static ref CHINESE_REGEX: Regex = Regex::new(r"[\u4e00-\u9fff]+").unwrap();
     static ref KNOWN_ABBREVIATIONS: HashSet<&'static str> = {
         let mut set = HashSet::new();
         set.insert("Mr.");
@@ -106,6 +108,8 @@ pub fn tokenize(text: &str) -> TokenizedText {
             token.token_type = TokenType::Number;
         } else if SLASH_ABBREV_REGEX.is_match(matched_text) {
             token.token_type = TokenType::Acronym;
+        } else if CHINESE_REGEX.is_match(matched_text) {
+            token.token_type = TokenType::Word;
         } else if WORD_REGEX.is_match(matched_text) {
             token.token_type = TokenType::Word;
         } else {
@@ -265,5 +269,54 @@ mod tests {
 
         let result = tokens_text(&tokenized, &invalid_interval);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_chinese_tokenization() {
+        let text = "宝玉今日穿了一件月白缎子袍子，腰系丝绦，头戴紫金冠。";
+        let tokenized = tokenize(text);
+
+        assert!(!tokenized.tokens.is_empty());
+
+        // Check that Chinese characters are tokenized as words
+        let mut found_chinese_word = false;
+        for token in &tokenized.tokens {
+            let token_text = &text[token.char_interval.start_pos..token.char_interval.end_pos];
+            if token.token_type == TokenType::Word && token_text.chars().any(|c| c >= '\u{4e00}' && c <= '\u{9fff}') {
+                found_chinese_word = true;
+                break;
+            }
+        }
+        assert!(found_chinese_word, "Should find at least one Chinese word token");
+
+        // Check that punctuation is properly separated
+        let punctuation_tokens: Vec<_> = tokenized
+            .tokens
+            .iter()
+            .filter(|t| t.token_type == TokenType::Punctuation)
+            .collect();
+        assert!(!punctuation_tokens.is_empty(), "Should find punctuation tokens");
+    }
+
+    #[test]
+    fn test_mixed_chinese_english_tokenization() {
+        let text = "Hello世界! This is测试.";
+        let tokenized = tokenize(text);
+
+        assert!(!tokenized.tokens.is_empty());
+
+        // Should have both English words and Chinese words
+        let has_english = tokenized.tokens.iter().any(|t| {
+            let token_text = &text[t.char_interval.start_pos..t.char_interval.end_pos];
+            t.token_type == TokenType::Word && token_text.chars().all(|c| c.is_ascii_alphabetic())
+        });
+
+        let has_chinese = tokenized.tokens.iter().any(|t| {
+            let token_text = &text[t.char_interval.start_pos..t.char_interval.end_pos];
+            t.token_type == TokenType::Word && token_text.chars().any(|c| c >= '\u{4e00}' && c <= '\u{9fff}')
+        });
+
+        assert!(has_english, "Should find English words");
+        assert!(has_chinese, "Should find Chinese words");
     }
 }

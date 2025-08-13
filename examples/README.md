@@ -59,7 +59,29 @@ cargo run --example simple_extraction
 - Uses YAML format for structured output
 - Shows basic entity extraction without complex examples
 
-### 2. Character Extraction (`character_extraction.rs`)
+### 3. Chinese Classical Extraction (`chinese_classical_extraction.rs`)
+
+A specialized example for Chinese text processing inspired by Dream of the Red Chamber (红楼梦) style:
+
+- Demonstrates multi-lingual entity extraction
+- Handles classical Chinese literary language
+- Extracts characters, locations, objects, emotions, and clothing descriptions
+- Uses original content written in classical Chinese style
+
+**Run it:**
+
+```bash
+cargo run --example chinese_classical_extraction
+```
+
+**What it does:**
+
+- Processes Chinese text with classical literary style
+- Extracts 人物姓名 (character names), 地点名称 (locations), 物品器具 (objects), 情感状态 (emotions), and 服饰装扮 (clothing)
+- Groups results by category with Chinese labels
+- Demonstrates LangExtract's capability with non-English content
+
+### 4. Character Extraction (`character_extraction.rs`)
 
 A comprehensive example that demonstrates:
 

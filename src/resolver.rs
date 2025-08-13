@@ -255,7 +255,7 @@ impl Resolver {
     fn string_to_extraction_data(&self, input_string: &str) -> ResolverResult<Vec<HashMap<String, JsonValue>>> {
         let parsed = self.extract_and_parse_content(input_string)?;
 
-        // Handle both simple array format and structured format
+        // Handle simple array format
         if let Some(array) = parsed.as_array() {
             // Simple array format: ["item1", "item2", ...]
             // Convert to single group with multiple extractions using "text" as key
@@ -276,43 +276,66 @@ impl Resolver {
             return Ok(vec![single_group]);
         }
 
-        let arr = if let Some(obj) = parsed.as_object() {
-            // Structured format: {"extractions": ["item1", "item2", ...]}
-            let extractions = obj
-                .get(schema::EXTRACTIONS_KEY)
-                .ok_or_else(|| ResolverError::Parse("Content must contain an 'extractions' key.".to_string()))?;
+        if let Some(obj) = parsed.as_object() {
+            // Check for structured format first: {"extractions": [...]}
+            if let Some(extractions) = obj.get(schema::EXTRACTIONS_KEY) {
+                let arr = extractions.as_array().ok_or_else(|| {
+                    ResolverError::Parse("The 'extractions' value must be a sequence (list).".to_string())
+                })?;
 
-            extractions
-                .as_array()
-                .ok_or_else(|| ResolverError::Parse("The 'extractions' value must be a sequence (list).".to_string()))?
-        } else {
-            return Err(ResolverError::Parse(
-                "Content must be either an array or a mapping with an 'extractions' key.".to_string(),
-            ));
-        };
-
-        let mut result = Vec::with_capacity(arr.len());
-        for item in arr {
-            if let Some(map) = item.as_object() {
-                // Item is already a mapping
-                let mut hm = HashMap::with_capacity(map.len());
-                for (k, v) in map {
-                    hm.insert(k.clone(), v.clone());
+                let mut result = Vec::with_capacity(arr.len());
+                for item in arr {
+                    if let Some(map) = item.as_object() {
+                        // Item is already a mapping
+                        let mut hm = HashMap::with_capacity(map.len());
+                        for (k, v) in map {
+                            hm.insert(k.clone(), v.clone());
+                        }
+                        result.push(hm);
+                    } else if let Some(text) = item.as_str() {
+                        // Item is a simple string, convert to extraction format
+                        let mut hm = HashMap::new();
+                        hm.insert("text".to_string(), JsonValue::String(text.to_string()));
+                        result.push(hm);
+                    } else {
+                        // Item is some other type, convert to string
+                        let mut hm = HashMap::new();
+                        hm.insert("text".to_string(), item.clone());
+                        result.push(hm);
+                    }
                 }
-                result.push(hm);
-            } else if let Some(text) = item.as_str() {
-                // Item is a simple string, convert to extraction format
-                let mut hm = HashMap::new();
-                hm.insert("text".to_string(), JsonValue::String(text.to_string()));
-                result.push(hm);
-            } else {
-                // Item is some other type, convert to string
-                let mut hm = HashMap::new();
-                hm.insert("text".to_string(), item.clone());
-                result.push(hm);
+                return Ok(result);
             }
+
+            // Handle nested category format: {"characters": ["name1", "name2"], "locations": [...]}
+            let mut single_group = HashMap::new();
+            for (category, value) in obj {
+                if let Some(array) = value.as_array() {
+                    // Category contains an array of items
+                    for (index, item) in array.iter().enumerate() {
+                        let key = if array.len() == 1 {
+                            category.clone()
+                        } else {
+                            format!("{}_{}", category, index)
+                        };
+
+                        if let Some(text) = item.as_str() {
+                            single_group.insert(key, JsonValue::String(text.to_string()));
+                        } else {
+                            single_group.insert(key, item.clone());
+                        }
+                    }
+                } else {
+                    // Category contains a single item
+                    single_group.insert(category.clone(), value.clone());
+                }
+            }
+            return Ok(vec![single_group]);
         }
-        Ok(result)
+
+        Err(ResolverError::Parse(
+            "Content must be an array, a mapping with an 'extractions' key, or a category-based mapping.".to_string(),
+        ))
     }
 
     /// Extracts and orders extractions similar to Python code logic.
@@ -828,5 +851,41 @@ mod tests {
         for extraction in &result {
             assert!(extraction.extraction_class.starts_with("text"));
         }
+    }
+
+    #[test]
+    fn test_parse_nested_category_format() {
+        let resolver = Resolver::new(true, None, None, true);
+        let yaml = r#"```yaml
+characters:
+  - 宝玉
+  - 袭人
+  - 林姑娘
+  - 黛玉
+locations:
+  - 怡红院
+  - 潇湘馆
+objects:
+  - 月白缎子袍子
+  - 丝绦
+  - 紫金冠
+  - 云头履
+```"#;
+        let result = resolver.parse_extractions_from_string(yaml).unwrap();
+        assert!(result.len() > 0);
+
+        // Check that we got the expected names (in any order)
+        let texts: Vec<&str> = result.iter().map(|e| e.extraction_text.as_str()).collect();
+        assert!(texts.contains(&"宝玉"));
+        assert!(texts.contains(&"袭人"));
+        assert!(texts.contains(&"怡红院"));
+        assert!(texts.contains(&"潇湘馆"));
+        assert!(texts.contains(&"月白缎子袍子"));
+
+        // Check that categories are used as class names
+        let classes: Vec<&str> = result.iter().map(|e| e.extraction_class.as_str()).collect();
+        assert!(classes.iter().any(|c| c.starts_with("characters")));
+        assert!(classes.iter().any(|c| c.starts_with("locations")));
+        assert!(classes.iter().any(|c| c.starts_with("objects")));
     }
 }

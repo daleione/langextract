@@ -19,7 +19,10 @@ fn main() {
     println!("分词结果: {} 个 token", tokenized.tokens.len());
 
     for (i, token) in tokenized.tokens.iter().enumerate().take(10) {
-        let token_text = &chinese_text[token.char_interval.start_pos..token.char_interval.end_pos];
+        let chars: Vec<char> = chinese_text.chars().collect();
+        let token_text: String = chars[token.char_interval.start_pos..token.char_interval.end_pos]
+            .iter()
+            .collect();
         println!("  {}. 「{}」 - {:?}", i + 1, token_text, token.token_type);
     }
 
@@ -102,7 +105,10 @@ emotions:
     let mixed_tokenized = tokenize(mixed_text);
     println!("分词结果:");
     for (i, token) in mixed_tokenized.tokens.iter().enumerate() {
-        let token_text = &mixed_text[token.char_interval.start_pos..token.char_interval.end_pos];
+        let chars: Vec<char> = mixed_text.chars().collect();
+        let token_text: String = chars[token.char_interval.start_pos..token.char_interval.end_pos]
+            .iter()
+            .collect();
         println!("  {}. 「{}」 - {:?}", i + 1, token_text, token.token_type);
     }
 

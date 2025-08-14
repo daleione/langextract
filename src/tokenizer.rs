@@ -58,7 +58,7 @@ lazy_static! {
     static ref SLASH_ABBREV_REGEX: Regex = Regex::new(r"[A-Za-z0-9]+(?:/[A-Za-z0-9]+)+").unwrap();
     static ref END_OF_SENTENCE_REGEX: Regex = Regex::new(r"[.?!。？！]$").unwrap();
     static ref TOKEN_REGEX: Regex =
-        Regex::new(r"[A-Za-z0-9]+(?:/[A-Za-z0-9]+)+|[\u4e00-\u9fff]+|[A-Za-z]+|[0-9]+|[^\u4e00-\u9fffA-Za-z0-9\s]+")
+        Regex::new(r"[A-Za-z0-9]+(?:/[A-Za-z0-9]+)+|[\u4e00-\u9fff]|[A-Za-z]+|[0-9]+|[^\u4e00-\u9fffA-Za-z0-9\s]+")
             .unwrap();
     static ref WORD_REGEX: Regex = Regex::new(r"(?:[\u4e00-\u9fff]+|[A-Za-z]+|[0-9]+)\b").unwrap();
     static ref CHINESE_REGEX: Regex = Regex::new(r"[\u4e00-\u9fff]+").unwrap();
@@ -84,9 +84,13 @@ pub fn tokenize(text: &str) -> TokenizedText {
     let mut previous_end = 0;
 
     for (token_index, mat) in TOKEN_REGEX.find_iter(text).enumerate() {
-        let start_pos = mat.start();
-        let end_pos = mat.end();
+        let byte_start = mat.start();
+        let byte_end = mat.end();
         let matched_text = mat.as_str();
+
+        // Convert byte indices to character indices
+        let start_pos = text[..byte_start].chars().count();
+        let end_pos = text[..byte_end].chars().count();
 
         let mut token = Token {
             index: token_index,
@@ -97,7 +101,7 @@ pub fn tokenize(text: &str) -> TokenizedText {
 
         // Check newline before token
         if token_index > 0 {
-            let gap = &text[previous_end..start_pos];
+            let gap = &text[previous_end..byte_start];
             if gap.contains('\n') || gap.contains('\r') {
                 token.first_token_after_newline = true;
             }
@@ -117,7 +121,7 @@ pub fn tokenize(text: &str) -> TokenizedText {
         }
 
         tokenized.tokens.push(token);
-        previous_end = end_pos;
+        previous_end = byte_end;
     }
 
     tokenized
@@ -137,21 +141,38 @@ pub fn tokens_text(tokenized_text: &TokenizedText, token_interval: &TokenInterva
     let start_token = &tokenized_text.tokens[token_interval.start_index];
     let end_token = &tokenized_text.tokens[token_interval.end_index - 1];
 
-    Ok(tokenized_text.text[start_token.char_interval.start_pos..end_token.char_interval.end_pos].to_string())
+    // Convert character indices back to string
+    let start_char = start_token.char_interval.start_pos;
+    let end_char = end_token.char_interval.end_pos;
+    let chars: Vec<char> = tokenized_text.text.chars().collect();
+    Ok(chars[start_char..end_char].iter().collect())
 }
 
-/// Determine if token is end of sentence
-fn is_end_of_sentence_token(text: &str, tokens: &[Token], current_idx: usize) -> bool {
-    let token_text = &text[tokens[current_idx].char_interval.start_pos..tokens[current_idx].char_interval.end_pos];
+/// Helper function to safely extract text from character indices
+fn extract_text_from_char_indices(text: &str, start_char: usize, end_char: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    if start_char >= chars.len() || end_char > chars.len() || start_char >= end_char {
+        return String::new();
+    }
+    chars[start_char..end_char].iter().collect()
+}
 
-    if END_OF_SENTENCE_REGEX.is_match(token_text) {
+/// Checks if a token is an end-of-sentence token
+fn is_end_of_sentence_token(text: &str, tokens: &[Token], current_idx: usize) -> bool {
+    let token_text = extract_text_from_char_indices(
+        text,
+        tokens[current_idx].char_interval.start_pos,
+        tokens[current_idx].char_interval.end_pos,
+    );
+
+    if END_OF_SENTENCE_REGEX.is_match(&token_text) {
         if current_idx > 0 {
-            let prev_token_text =
-                &text[tokens[current_idx - 1].char_interval.start_pos..tokens[current_idx - 1].char_interval.end_pos];
-            let combined = format!("{}{}", prev_token_text, token_text);
-            if KNOWN_ABBREVIATIONS.contains(combined.as_str()) {
-                return false;
-            }
+            let prev_token_text = extract_text_from_char_indices(
+                text,
+                tokens[current_idx - 1].char_interval.start_pos,
+                tokens[current_idx - 1].char_interval.end_pos,
+            );
+            return !prev_token_text.chars().all(|c| c.is_uppercase() && c.is_alphabetic());
         }
         return true;
     }
@@ -164,14 +185,21 @@ fn is_sentence_break_after_newline(text: &str, tokens: &[Token], current_idx: us
         return false;
     }
 
-    let gap_text = &text[tokens[current_idx].char_interval.end_pos..tokens[current_idx + 1].char_interval.start_pos];
+    let gap_text = extract_text_from_char_indices(
+        text,
+        tokens[current_idx].char_interval.end_pos,
+        tokens[current_idx + 1].char_interval.start_pos,
+    );
 
     if !gap_text.contains('\n') {
         return false;
     }
 
-    let next_token_text =
-        &text[tokens[current_idx + 1].char_interval.start_pos..tokens[current_idx + 1].char_interval.end_pos];
+    let next_token_text = extract_text_from_char_indices(
+        text,
+        tokens[current_idx + 1].char_interval.start_pos,
+        tokens[current_idx + 1].char_interval.end_pos,
+    );
     !next_token_text.is_empty() && next_token_text.chars().next().unwrap().is_uppercase()
 }
 
@@ -224,7 +252,11 @@ mod tests {
 
         assert!(!tokenized.tokens.is_empty());
         assert_eq!(
-            &text[tokenized.tokens[0].char_interval.start_pos..tokenized.tokens[0].char_interval.end_pos],
+            extract_text_from_char_indices(
+                text,
+                tokenized.tokens[0].char_interval.start_pos,
+                tokenized.tokens[0].char_interval.end_pos,
+            ),
             "Dr"
         );
         assert_eq!(tokenized.tokens[0].token_type, TokenType::Word);
@@ -281,7 +313,8 @@ mod tests {
         // Check that Chinese characters are tokenized as words
         let mut found_chinese_word = false;
         for token in &tokenized.tokens {
-            let token_text = &text[token.char_interval.start_pos..token.char_interval.end_pos];
+            let token_text =
+                extract_text_from_char_indices(text, token.char_interval.start_pos, token.char_interval.end_pos);
             if token.token_type == TokenType::Word && token_text.chars().any(|c| c >= '\u{4e00}' && c <= '\u{9fff}') {
                 found_chinese_word = true;
                 break;
@@ -307,12 +340,12 @@ mod tests {
 
         // Should have both English words and Chinese words
         let has_english = tokenized.tokens.iter().any(|t| {
-            let token_text = &text[t.char_interval.start_pos..t.char_interval.end_pos];
+            let token_text = extract_text_from_char_indices(text, t.char_interval.start_pos, t.char_interval.end_pos);
             t.token_type == TokenType::Word && token_text.chars().all(|c| c.is_ascii_alphabetic())
         });
 
         let has_chinese = tokenized.tokens.iter().any(|t| {
-            let token_text = &text[t.char_interval.start_pos..t.char_interval.end_pos];
+            let token_text = extract_text_from_char_indices(text, t.char_interval.start_pos, t.char_interval.end_pos);
             t.token_type == TokenType::Word && token_text.chars().any(|c| c >= '\u{4e00}' && c <= '\u{9fff}')
         });
 

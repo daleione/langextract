@@ -150,9 +150,18 @@ enum TagType {
     End,
 }
 
+/// Visualization style options
+#[derive(Debug, Clone, PartialEq)]
+pub enum VisualizationStyle {
+    /// Original animated style with controls
+    Animated,
+    /// Static Chinese classical style
+    ChineseClassical,
+}
+
 /// Represents a span boundary point for HTML generation
 #[derive(Debug, Clone)]
-struct SpanPoint {
+struct SpanPoint<'a> {
     /// Character position in the text
     position: usize,
     /// Type of span boundary (Start or End)
@@ -160,7 +169,7 @@ struct SpanPoint {
     /// Index of the span for HTML data-idx attribute
     span_idx: usize,
     /// The extraction data associated with this span
-    extraction: Extraction,
+    extraction: &'a Extraction,
 }
 
 /// Options for visualization
@@ -174,6 +183,8 @@ pub struct VisualizeOptions {
     pub gif_optimized: bool,
     /// Number of context characters to show around extractions
     pub context_chars: usize,
+    /// Visualization style to use
+    pub style: VisualizationStyle,
 }
 
 impl Default for VisualizeOptions {
@@ -183,6 +194,7 @@ impl Default for VisualizeOptions {
             show_legend: true,
             gif_optimized: true,
             context_chars: 150,
+            style: VisualizationStyle::Animated,
         }
     }
 }
@@ -268,6 +280,11 @@ fn build_highlighted_text(
     extractions: &[&Extraction],
     color_map: &HashMap<String, &str>,
 ) -> Result<String, VisualizeError> {
+    use std::cmp::Ordering;
+    // Convert text to character vector for safe indexing
+    let chars: Vec<char> = text.chars().collect();
+    let total_chars = chars.len();
+
     let mut points = Vec::new();
     let mut span_lengths = HashMap::new();
 
@@ -281,36 +298,32 @@ fn build_highlighted_text(
             position: start_pos,
             tag_type: TagType::Start,
             span_idx: index,
-            extraction: (*extraction).clone(),
+            extraction,
         });
+
         points.push(SpanPoint {
             position: end_pos,
             tag_type: TagType::End,
             span_idx: index,
-            extraction: (*extraction).clone(),
+            extraction,
         });
 
         span_lengths.insert(index, span_length);
     }
 
-    // Sort points for proper HTML nesting
-    points.sort_by(|a, b| {
-        use std::cmp::Ordering;
+    points.sort_by(|a, b| match a.position.cmp(&b.position) {
+        Ordering::Equal => {
+            let a_span_length = span_lengths.get(&a.span_idx).unwrap_or(&0);
+            let b_span_length = span_lengths.get(&b.span_idx).unwrap_or(&0);
 
-        match a.position.cmp(&b.position) {
-            Ordering::Equal => {
-                let a_span_length = span_lengths.get(&a.span_idx).unwrap_or(&0);
-                let b_span_length = span_lengths.get(&b.span_idx).unwrap_or(&0);
-
-                match (a.tag_type, b.tag_type) {
-                    (TagType::End, TagType::Start) => Ordering::Less,
-                    (TagType::Start, TagType::End) => Ordering::Greater,
-                    (TagType::End, TagType::End) => a_span_length.cmp(b_span_length),
-                    (TagType::Start, TagType::Start) => b_span_length.cmp(a_span_length),
-                }
+            match (a.tag_type, b.tag_type) {
+                (TagType::End, TagType::Start) => Ordering::Less,
+                (TagType::Start, TagType::End) => Ordering::Greater,
+                (TagType::End, TagType::End) => a_span_length.cmp(b_span_length),
+                (TagType::Start, TagType::Start) => b_span_length.cmp(a_span_length),
             }
-            other => other,
         }
+        other => other,
     });
 
     let mut html_parts = Vec::new();
@@ -318,7 +331,9 @@ fn build_highlighted_text(
 
     for point in points {
         if point.position > cursor {
-            html_parts.push(encode_text(&text[cursor..point.position]).to_string());
+            // Extract characters from cursor to point.position and convert to string
+            let text_slice: String = chars[cursor..point.position.min(total_chars)].iter().collect();
+            html_parts.push(encode_text(&text_slice).to_string());
         }
 
         match point.tag_type {
@@ -343,8 +358,10 @@ fn build_highlighted_text(
         cursor = point.position;
     }
 
-    if cursor < text.len() {
-        html_parts.push(encode_text(&text[cursor..]).to_string());
+    if cursor < total_chars {
+        // Extract remaining characters and convert to string
+        let remaining_text: String = chars[cursor..].iter().collect();
+        html_parts.push(encode_text(&remaining_text).to_string());
     }
 
     Ok(html_parts.join(""))
@@ -421,6 +438,10 @@ fn prepare_extraction_data(
     color_map: &HashMap<String, &str>,
     context_chars: usize,
 ) -> Vec<ExtractionData> {
+    // Convert text to character vector for safe indexing
+    let chars: Vec<char> = text.chars().collect();
+    let char_count = chars.len();
+
     extractions
         .iter()
         .enumerate()
@@ -430,11 +451,12 @@ fn prepare_extraction_data(
             let end_pos = interval.end_pos.unwrap();
 
             let context_start = start_pos.saturating_sub(context_chars);
-            let context_end = (end_pos + context_chars).min(text.len());
+            let context_end = (end_pos + context_chars).min(char_count);
 
-            let before_text = &text[context_start..start_pos];
-            let extraction_text = &text[start_pos..end_pos];
-            let after_text = &text[end_pos..context_end];
+            // Extract character ranges and convert back to strings
+            let before_chars: String = chars[context_start..start_pos].iter().collect();
+            let extraction_chars: String = chars[start_pos..end_pos].iter().collect();
+            let after_chars: String = chars[end_pos..context_end].iter().collect();
 
             let color = color_map.get(&extraction.extraction_class).unwrap_or(&"#ffff8d");
 
@@ -451,9 +473,9 @@ fn prepare_extraction_data(
                 color: color.to_string(),
                 start_pos,
                 end_pos,
-                before_text: encode_text(before_text).to_string(),
-                extraction_text: encode_text(extraction_text).to_string(),
-                after_text: encode_text(after_text).to_string(),
+                before_text: encode_text(&before_chars).to_string(),
+                extraction_text: encode_text(&extraction_chars).to_string(),
+                after_text: encode_text(&after_chars).to_string(),
                 attributes_html,
             }
         })
@@ -636,17 +658,30 @@ pub fn visualize(data_source: DataSource, options: VisualizeOptions) -> Result<S
     let valid_extractions = filter_valid_extractions(extractions);
 
     if valid_extractions.is_empty() {
-        let empty_html = r#"<div class="lx-animated-wrapper"><p>No valid extractions to animate.</p></div>"#;
-        return Ok(format!("{}{}", VISUALIZATION_CSS, empty_html));
+        let empty_html = match options.style {
+            VisualizationStyle::Animated => {
+                r#"<div class="lx-animated-wrapper"><p>No valid extractions to animate.</p></div>"#
+            }
+            VisualizationStyle::ChineseClassical => {
+                r#"<div class="chinese-container"><p>没有可显示的提取结果</p></div>"#
+            }
+        };
+        return Ok(format!("{}{}", get_css_for_style(&options.style), empty_html));
     }
 
     let color_map = assign_colors(&valid_extractions);
-    let visualization_html = build_visualization_html(text, &valid_extractions, &color_map, &options)?;
 
-    let mut full_html = format!("{}{}", VISUALIZATION_CSS, visualization_html);
+    let visualization_html = match options.style {
+        VisualizationStyle::Animated => build_visualization_html(text, &valid_extractions, &color_map, &options)?,
+        VisualizationStyle::ChineseClassical => {
+            build_chinese_classical_html(text, &valid_extractions, &color_map, &options)?
+        }
+    };
 
-    // Apply GIF optimizations if requested
-    if options.gif_optimized {
+    let mut full_html = format!("{}{}", get_css_for_style(&options.style), visualization_html);
+
+    // Apply GIF optimizations if requested for animated style
+    if options.gif_optimized && options.style == VisualizationStyle::Animated {
         full_html = full_html.replace(
             r#"class="lx-animated-wrapper""#,
             r#"class="lx-animated-wrapper lx-gif-optimized""#,
@@ -655,6 +690,715 @@ pub fn visualize(data_source: DataSource, options: VisualizeOptions) -> Result<S
 
     Ok(full_html)
 }
+
+fn get_css_for_style(style: &VisualizationStyle) -> &'static str {
+    match style {
+        VisualizationStyle::Animated => VISUALIZATION_CSS,
+        VisualizationStyle::ChineseClassical => CHINESE_CLASSICAL_CSS,
+    }
+}
+
+fn build_chinese_classical_html(
+    text: &str,
+    extractions: &[&Extraction],
+    color_map: &HashMap<String, &str>,
+    _options: &VisualizeOptions,
+) -> Result<String, VisualizeError> {
+    use std::collections::HashMap;
+
+    // Count extractions by class
+    let mut category_counts: HashMap<String, Vec<&Extraction>> = HashMap::new();
+    for extraction in extractions {
+        category_counts
+            .entry(extraction.extraction_class.clone())
+            .or_insert_with(Vec::new)
+            .push(extraction);
+    }
+
+    let mut html = String::new();
+
+    // HTML document header
+    html.push_str(
+        r#"<div class="chinese-container">
+    <div class="chinese-header">
+        <h1>🏮 古典文本实体可视化</h1>
+        <p>现代AI技术与传统文学的完美融合</p>
+    </div>
+
+    <div class="chinese-content">
+        <div class="chinese-decoration">🏮 ◆ ❋ ◆ 🏮</div>
+"#,
+    );
+
+    // Statistics section with clickable items
+    html.push_str(
+        r#"        <div class="chinese-statistics">
+            <h3>📊 提取统计</h3>
+            <div class="stat-grid">
+"#,
+    );
+
+    html.push_str(&format!(
+        r#"                <div class="stat-item clickable" onclick="showExtractionDetails('all')">
+                    <div class="stat-number">{}</div>
+                    <div class="stat-label">总计实体</div>
+                </div>"#,
+        extractions.len()
+    ));
+
+    for (category, extractions_in_category) in &category_counts {
+        let category_name = get_chinese_category_name(category);
+        html.push_str(&format!(
+            r#"                <div class="stat-item clickable" onclick="showExtractionDetails('{}')">
+                    <div class="stat-number">{}</div>
+                    <div class="stat-label">{}</div>
+                </div>"#,
+            category,
+            extractions_in_category.len(),
+            category_name
+        ));
+    }
+
+    html.push_str(
+        r#"            </div>
+        </div>
+"#,
+    );
+
+    // Legend
+    html.push_str(
+        r#"        <div class="chinese-legend">
+            <div class="legend-title">🎨 实体类型图例</div>
+            <div class="legend-grid">
+"#,
+    );
+
+    for (class_name, color) in color_map {
+        let category_name = get_chinese_category_name(class_name);
+        let icon = get_category_icon(class_name);
+        html.push_str(&format!(
+            r#"                <div class="legend-item">
+                    <div class="legend-color" style="background-color: {}"></div>
+                    <span>{} {}</span>
+                </div>"#,
+            color, icon, category_name
+        ));
+    }
+
+    html.push_str(
+        r#"            </div>
+        </div>
+"#,
+    );
+
+    // Highlighted text
+    html.push_str(
+        r#"        <div class="chinese-text-content">
+"#,
+    );
+
+    let highlighted_text = build_chinese_highlighted_text(text, extractions, color_map)?;
+    html.push_str(&highlighted_text);
+
+    html.push_str(
+        r#"        </div>
+
+        <div class="chinese-decoration">🌸 ◆ 🏛️ ◆ 📿 ◆ 👘 ◆ 🌸</div>
+    </div>
+
+    <div class="chinese-footer">
+        <p>🏮 LangExtract 实体提取可视化 🏮</p>
+        <p>展示了从文本中提取的 "#,
+    );
+    html.push_str(&extractions.len().to_string());
+    html.push_str(
+        r#" 个实体</p>
+    </div>
+</div>
+
+<!-- Modal for extraction details -->
+<div id="extractionModal" class="modal" onclick="closeModal()">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 id="modalTitle">提取详情</h2>
+            <span class="close" onclick="closeModal()">&times;</span>
+        </div>
+        <div class="modal-body" id="modalBody">
+        </div>
+    </div>
+</div>
+
+<script>
+const extractionData = "#,
+    );
+
+    // Generate JavaScript data
+    html.push_str(&generate_extraction_js_data(extractions, &category_counts)?);
+
+    html.push_str(
+        r#";
+
+function showExtractionDetails(category) {
+    const modal = document.getElementById('extractionModal');
+    const modalTitle = document.getElementById('modalTitle');
+    const modalBody = document.getElementById('modalBody');
+
+    let title, items;
+    if (category === 'all') {
+        title = '所有提取实体';
+        items = extractionData.all;
+    } else {
+        title = getCategoryName(category) + ' 实体';
+        items = extractionData.categories[category] || [];
+    }
+
+    modalTitle.textContent = title + ' (' + items.length + '个)';
+
+    let html = '<div class="extraction-list">';
+    items.forEach((item, index) => {
+        html += `
+            <div class="extraction-item">
+                <div class="extraction-text">${item.text}</div>
+                <div class="extraction-meta">
+                    <span class="extraction-class">${getCategoryName(item.class)}</span>
+                    <span class="extraction-position">[${item.start}-${item.end}]</span>
+                </div>
+                ${item.attributes ? `<div class="extraction-attributes">${item.attributes}</div>` : ''}
+            </div>
+        `;
+    });
+    html += '</div>';
+
+    modalBody.innerHTML = html;
+    modal.style.display = 'block';
+}
+
+function closeModal() {
+    document.getElementById('extractionModal').style.display = 'none';
+}
+
+function getCategoryName(category) {
+    const names = {
+        'characters': '👤 人物角色',
+        'locations': '🏛️ 地点场所',
+        'objects': '📿 物品器具',
+        'clothing': '👘 服饰装扮',
+        'emotions': '💭 情感状态',
+        'nature': '🌸 自然景物'
+    };
+    return names[category] || category;
+}
+
+// Add hover effects
+document.addEventListener('DOMContentLoaded', function() {
+    const highlights = document.querySelectorAll('.highlight');
+    highlights.forEach(function(highlight) {
+        highlight.addEventListener('mouseenter', function() {
+            this.style.transform = 'scale(1.05)';
+            this.style.zIndex = '10';
+        });
+
+        highlight.addEventListener('mouseleave', function() {
+            this.style.transform = 'scale(1)';
+            this.style.zIndex = 'auto';
+        });
+    });
+});
+</script>
+</body>
+</html>
+"#,
+    );
+
+    Ok(html)
+}
+
+fn build_chinese_highlighted_text(
+    text: &str,
+    extractions: &[&Extraction],
+    color_map: &HashMap<String, &str>,
+) -> Result<String, VisualizeError> {
+    // Convert text to character vector for safe indexing
+    let chars: Vec<char> = text.chars().collect();
+    let total_chars = chars.len();
+
+    let mut points = Vec::new();
+    let mut span_lengths = HashMap::new();
+
+    for (index, extraction) in extractions.iter().enumerate() {
+        let interval = extraction.char_interval.as_ref().unwrap();
+        let start_pos = interval.start_pos.unwrap();
+        let end_pos = interval.end_pos.unwrap();
+        let span_length = end_pos - start_pos;
+
+        points.push(SpanPoint {
+            position: start_pos,
+            tag_type: TagType::Start,
+            span_idx: index,
+            extraction,
+        });
+
+        points.push(SpanPoint {
+            position: end_pos,
+            tag_type: TagType::End,
+            span_idx: index,
+            extraction,
+        });
+
+        span_lengths.insert(index, span_length);
+    }
+
+    points.sort_by(|a, b| match a.position.cmp(&b.position) {
+        std::cmp::Ordering::Equal => {
+            let a_span_length = span_lengths.get(&a.span_idx).unwrap_or(&0);
+            let b_span_length = span_lengths.get(&b.span_idx).unwrap_or(&0);
+
+            match (a.tag_type, b.tag_type) {
+                (TagType::End, TagType::Start) => std::cmp::Ordering::Less,
+                (TagType::Start, TagType::End) => std::cmp::Ordering::Greater,
+                (TagType::End, TagType::End) => a_span_length.cmp(b_span_length),
+                (TagType::Start, TagType::Start) => b_span_length.cmp(a_span_length),
+            }
+        }
+        other => other,
+    });
+
+    let mut html_parts = Vec::new();
+    let mut cursor = 0;
+
+    for point in points {
+        if point.position > cursor {
+            // Extract characters from cursor to point.position and convert to string
+            let text_slice: String = chars[cursor..point.position.min(total_chars)].iter().collect();
+            html_parts.push(text_slice);
+        }
+
+        match point.tag_type {
+            TagType::Start => {
+                let color = color_map.get(&point.extraction.extraction_class).unwrap_or(&"#ddd");
+                let attributes_text = format_attributes(&point.extraction.attributes);
+                let tooltip_content = if attributes_text.is_empty() {
+                    format!(
+                        "类型: {}",
+                        get_chinese_category_name(&point.extraction.extraction_class)
+                    )
+                } else {
+                    format!(
+                        "类型: {} | {}",
+                        get_chinese_category_name(&point.extraction.extraction_class),
+                        attributes_text
+                    )
+                };
+
+                html_parts.push(format!(
+                    r#"<span class="highlight" style="background-color: {}; border-color: {};" title="{}">"#,
+                    color, color, tooltip_content
+                ));
+            }
+            TagType::End => {
+                html_parts.push("</span>".to_string());
+            }
+        }
+
+        cursor = point.position;
+    }
+
+    // Add remaining text after the last point
+    if cursor < total_chars {
+        let text_slice: String = chars[cursor..total_chars].iter().collect();
+        html_parts.push(text_slice);
+    }
+
+    Ok(html_parts.join(""))
+}
+
+fn generate_extraction_js_data(
+    extractions: &[&Extraction],
+    category_counts: &HashMap<String, Vec<&Extraction>>,
+) -> Result<String, VisualizeError> {
+    use serde_json::json;
+
+    let mut all_items = Vec::new();
+    let mut categories = serde_json::Map::new();
+
+    for extraction in extractions {
+        let interval = extraction.char_interval.as_ref().unwrap();
+        let item = json!({
+            "text": extraction.extraction_text,
+            "class": extraction.extraction_class,
+            "start": interval.start_pos.unwrap(),
+            "end": interval.end_pos.unwrap(),
+            "attributes": format_attributes(&extraction.attributes)
+        });
+        all_items.push(item);
+    }
+
+    for (category, extractions_in_category) in category_counts {
+        let mut items = Vec::new();
+        for extraction in extractions_in_category {
+            let interval = extraction.char_interval.as_ref().unwrap();
+            let item = json!({
+                "text": extraction.extraction_text,
+                "class": extraction.extraction_class,
+                "start": interval.start_pos.unwrap(),
+                "end": interval.end_pos.unwrap(),
+                "attributes": format_attributes(&extraction.attributes)
+            });
+            items.push(item);
+        }
+        categories.insert(category.clone(), json!(items));
+    }
+
+    let data = json!({
+        "all": all_items,
+        "categories": categories
+    });
+
+    Ok(data.to_string())
+}
+
+fn get_chinese_category_name(category: &str) -> &'static str {
+    match category {
+        "characters" => "人物角色",
+        "locations" => "地点场所",
+        "objects" => "物品器具",
+        "clothing" => "服饰装扮",
+        "emotions" => "情感状态",
+        "nature" => "自然景物",
+        _ => "其他",
+    }
+}
+
+fn get_category_icon(category: &str) -> &'static str {
+    match category {
+        "characters" => "👤",
+        "locations" => "🏛️",
+        "objects" => "📿",
+        "clothing" => "👘",
+        "emotions" => "💭",
+        "nature" => "🌸",
+        _ => "🔸",
+    }
+}
+
+const CHINESE_CLASSICAL_CSS: &str = r#"<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏮 古典文本实体可视化</title>
+    <style>
+body {
+    font-family: "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif;
+    line-height: 2.0;
+    margin: 0;
+    padding: 20px;
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    color: #333;
+}
+
+.chinese-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 15px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+}
+
+.chinese-header {
+    background: linear-gradient(45deg, #8B4513, #DAA520);
+    color: white;
+    text-align: center;
+    padding: 30px 20px;
+}
+
+.chinese-header h1 {
+    margin: 0;
+    font-size: 28px;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.chinese-header p {
+    margin: 10px 0 0 0;
+    font-size: 16px;
+    opacity: 0.9;
+}
+
+.chinese-content {
+    padding: 30px;
+}
+
+.chinese-text-content {
+    background: #FFFEF7;
+    border: 2px solid #DAA520;
+    border-radius: 12px;
+    padding: 25px;
+    margin: 20px 0;
+    font-size: 18px;
+    letter-spacing: 0.5px;
+    line-height: 2.2;
+    box-shadow: inset 0 2px 8px rgba(218, 165, 32, 0.1);
+}
+
+.chinese-legend {
+    background: linear-gradient(135deg, #FFF8DC, #F5DEB3);
+    border: 2px solid #CD853F;
+    border-radius: 12px;
+    padding: 20px;
+    margin: 20px 0;
+    box-shadow: 0 4px 12px rgba(205, 133, 63, 0.2);
+}
+
+.legend-title {
+    color: #8B4513;
+    font-weight: bold;
+    font-size: 18px;
+    margin-bottom: 15px;
+    text-align: center;
+    border-bottom: 2px solid #DAA520;
+    padding-bottom: 10px;
+}
+
+.legend-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 10px;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.6);
+    transition: all 0.3s ease;
+}
+
+.legend-item:hover {
+    background: rgba(255, 255, 255, 0.9);
+    transform: scale(1.02);
+}
+
+.legend-color {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    margin-right: 10px;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+.highlight {
+    padding: 3px 6px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: help;
+    transition: all 0.3s ease;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.highlight:hover {
+    transform: scale(1.05);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    z-index: 10;
+    position: relative;
+}
+
+.chinese-statistics {
+    background: linear-gradient(135deg, #E6F3FF, #CCE7FF);
+    border: 2px solid #4682B4;
+    border-radius: 12px;
+    padding: 20px;
+    margin: 20px 0;
+}
+
+.chinese-statistics h3 {
+    text-align: center;
+    color: #2F4F4F;
+    margin-bottom: 15px;
+}
+
+.stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.stat-item {
+    text-align: center;
+    padding: 15px;
+    background: rgba(255, 255, 255, 0.7);
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+}
+
+.stat-item.clickable {
+    cursor: pointer;
+}
+
+.stat-item.clickable:hover {
+    background: rgba(255, 255, 255, 0.9);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.stat-number {
+    font-size: 24px;
+    font-weight: bold;
+    color: #2F4F4F;
+}
+
+.stat-label {
+    font-size: 14px;
+    color: #666;
+    margin-top: 5px;
+}
+
+.chinese-decoration {
+    text-align: center;
+    color: #DAA520;
+    font-size: 24px;
+    margin: 20px 0;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.chinese-footer {
+    background: linear-gradient(45deg, #F5DEB3, #DDD);
+    color: #8B4513;
+    text-align: center;
+    padding: 20px;
+    font-weight: bold;
+}
+
+.chinese-footer p {
+    margin: 5px 0;
+}
+
+/* Modal Styles */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+}
+
+.modal-content {
+    background-color: #fefefe;
+    margin: 5% auto;
+    padding: 0;
+    border-radius: 12px;
+    width: 80%;
+    max-width: 800px;
+    max-height: 80%;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.modal-header {
+    background: linear-gradient(45deg, #8B4513, #DAA520);
+    color: white;
+    padding: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-header h2 {
+    margin: 0;
+    font-size: 20px;
+}
+
+.close {
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    opacity: 0.8;
+}
+
+.close:hover {
+    opacity: 1;
+}
+
+.modal-body {
+    padding: 20px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.extraction-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.extraction-item {
+    padding: 15px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: #f9f9f9;
+    transition: all 0.3s ease;
+}
+
+.extraction-item:hover {
+    background: #f0f0f0;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.extraction-text {
+    font-weight: bold;
+    font-size: 16px;
+    color: #333;
+    margin-bottom: 8px;
+}
+
+.extraction-meta {
+    display: flex;
+    gap: 15px;
+    font-size: 14px;
+    color: #666;
+}
+
+.extraction-class {
+    background: #e3f2fd;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 500;
+}
+
+.extraction-position {
+    background: #f3e5f5;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: monospace;
+}
+
+.extraction-attributes {
+    margin-top: 8px;
+    font-size: 13px;
+    color: #555;
+    font-style: italic;
+}
+
+@media (max-width: 768px) {
+    body { padding: 10px; }
+    .chinese-content { padding: 20px; }
+    .chinese-text-content { padding: 15px; font-size: 16px; }
+    .chinese-header h1 { font-size: 24px; }
+    .legend-grid { grid-template-columns: 1fr; }
+    .modal-content { width: 95%; margin: 10% auto; }
+    .extraction-meta { flex-direction: column; gap: 5px; }
+}
+</style>
+</head>
+<body>
+"#;
 
 #[cfg(test)]
 mod tests {
@@ -716,6 +1460,81 @@ mod tests {
         let doc = create_test_document();
         let html = visualize(DataSource::Document(doc), VisualizeOptions::default())?;
         assert!(html.contains("No valid extractions to animate"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_visualization_style_default() {
+        let options = VisualizeOptions::default();
+        assert_eq!(options.style, VisualizationStyle::Animated);
+    }
+
+    #[test]
+    fn test_visualization_style_selection() {
+        let animated_options = VisualizeOptions {
+            style: VisualizationStyle::Animated,
+            ..Default::default()
+        };
+        assert_eq!(animated_options.style, VisualizationStyle::Animated);
+
+        let chinese_options = VisualizeOptions {
+            style: VisualizationStyle::ChineseClassical,
+            ..Default::default()
+        };
+        assert_eq!(chinese_options.style, VisualizationStyle::ChineseClassical);
+    }
+
+    #[test]
+    fn test_get_chinese_category_name() {
+        assert_eq!(get_chinese_category_name("characters"), "人物角色");
+        assert_eq!(get_chinese_category_name("locations"), "地点场所");
+        assert_eq!(get_chinese_category_name("objects"), "物品器具");
+        assert_eq!(get_chinese_category_name("clothing"), "服饰装扮");
+        assert_eq!(get_chinese_category_name("emotions"), "情感状态");
+        assert_eq!(get_chinese_category_name("nature"), "自然景物");
+        assert_eq!(get_chinese_category_name("unknown"), "其他");
+    }
+
+    #[test]
+    fn test_get_category_icon() {
+        assert_eq!(get_category_icon("characters"), "👤");
+        assert_eq!(get_category_icon("locations"), "🏛️");
+        assert_eq!(get_category_icon("objects"), "📿");
+        assert_eq!(get_category_icon("clothing"), "👘");
+        assert_eq!(get_category_icon("emotions"), "💭");
+        assert_eq!(get_category_icon("nature"), "🌸");
+        assert_eq!(get_category_icon("unknown"), "🔸");
+    }
+
+    #[test]
+    fn test_get_css_for_style() {
+        assert_eq!(get_css_for_style(&VisualizationStyle::Animated), VISUALIZATION_CSS);
+        assert_eq!(
+            get_css_for_style(&VisualizationStyle::ChineseClassical),
+            CHINESE_CLASSICAL_CSS
+        );
+    }
+
+    #[test]
+    fn test_empty_extractions_different_styles() -> Result<(), VisualizeError> {
+        let doc = create_test_document();
+
+        // Test animated style with empty extractions
+        let animated_options = VisualizeOptions {
+            style: VisualizationStyle::Animated,
+            ..Default::default()
+        };
+        let animated_html = visualize(DataSource::Document(doc.clone()), animated_options)?;
+        assert!(animated_html.contains("No valid extractions to animate"));
+
+        // Test Chinese classical style with empty extractions
+        let chinese_options = VisualizeOptions {
+            style: VisualizationStyle::ChineseClassical,
+            ..Default::default()
+        };
+        let chinese_html = visualize(DataSource::Document(doc), chinese_options)?;
+        assert!(chinese_html.contains("没有可显示的提取结果"));
+
         Ok(())
     }
 }

@@ -283,6 +283,38 @@ impl Resolver {
                     ResolverError::Parse("The 'extractions' value must be a sequence (list).".to_string())
                 })?;
 
+                // Check if this is DeepSeek format: [{"characters": "text", "characters_attributes": {}}, ...]
+                if let Some(first_item) = arr.first() {
+                    if let Some(first_obj) = first_item.as_object() {
+                        let mut has_category_fields = false;
+                        for key in first_obj.keys() {
+                            if !key.ends_with("_attributes") && key != "extraction_class" && key != "extraction_text" {
+                                has_category_fields = true;
+                                break;
+                            }
+                        }
+
+                        if has_category_fields {
+                            // Process DeepSeek format
+                            let mut result = Vec::new();
+                            for item in arr {
+                                if let Some(item_obj) = item.as_object() {
+                                    for (key, value) in item_obj {
+                                        if !key.ends_with("_attributes") {
+                                            let mut extraction_map = HashMap::new();
+                                            extraction_map
+                                                .insert("extraction_class".to_string(), JsonValue::String(key.clone()));
+                                            extraction_map.insert("extraction_text".to_string(), value.clone());
+                                            result.push(extraction_map);
+                                        }
+                                    }
+                                }
+                            }
+                            return Ok(result);
+                        }
+                    }
+                }
+
                 let mut result = Vec::with_capacity(arr.len());
                 for item in arr {
                     if let Some(map) = item.as_object() {
@@ -308,29 +340,31 @@ impl Resolver {
             }
 
             // Handle nested category format: {"characters": ["name1", "name2"], "locations": [...]}
-            let mut single_group = HashMap::new();
+            let mut result = Vec::new();
             for (category, value) in obj {
                 if let Some(array) = value.as_array() {
-                    // Category contains an array of items
-                    for (index, item) in array.iter().enumerate() {
-                        let key = if array.len() == 1 {
-                            category.clone()
-                        } else {
-                            format!("{}_{}", category, index)
-                        };
+                    // Category contains an array of items - create separate extraction for each
+                    for item in array.iter() {
+                        let mut extraction_map = HashMap::new();
+                        extraction_map.insert("extraction_class".to_string(), JsonValue::String(category.clone()));
 
                         if let Some(text) = item.as_str() {
-                            single_group.insert(key, JsonValue::String(text.to_string()));
+                            extraction_map.insert("extraction_text".to_string(), JsonValue::String(text.to_string()));
                         } else {
-                            single_group.insert(key, item.clone());
+                            extraction_map.insert("extraction_text".to_string(), item.clone());
                         }
+
+                        result.push(extraction_map);
                     }
                 } else {
                     // Category contains a single item
-                    single_group.insert(category.clone(), value.clone());
+                    let mut extraction_map = HashMap::new();
+                    extraction_map.insert("extraction_class".to_string(), JsonValue::String(category.clone()));
+                    extraction_map.insert("extraction_text".to_string(), value.clone());
+                    result.push(extraction_map);
                 }
             }
-            return Ok(vec![single_group]);
+            return Ok(result);
         }
 
         Err(ResolverError::Parse(
@@ -358,27 +392,55 @@ impl Resolver {
                 }
             }
 
-            // Process extractions
-            for (key, value) in group {
-                // Skip index and attributes keys
-                if let Some(suf) = index_suffix
-                    && key.ends_with(suf)
-                {
-                    continue;
-                }
-                if let Some(suf) = attributes_suffix
-                    && key.ends_with(suf)
-                {
-                    continue;
-                }
+            // Check if this group represents a structured extraction with extraction_class and extraction_text
+            if group.contains_key("extraction_class") && group.contains_key("extraction_text") {
+                // Handle structured extraction format
+                let extraction_class = group
+                    .get("extraction_class")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| ResolverError::Parse("extraction_class must be a string".to_string()))?;
 
-                let text_val = self.convert_to_text(value)?;
+                let extraction_text = self.convert_to_text(
+                    group
+                        .get("extraction_text")
+                        .ok_or_else(|| ResolverError::Parse("extraction_text is required".to_string()))?,
+                )?;
+
                 let extraction_index =
-                    self.get_extraction_index(group, key, index_suffix, &mut default_index_counter)?;
-                let attributes = self.get_attributes(group, key, attributes_suffix)?;
+                    self.get_extraction_index(group, "extraction_text", index_suffix, &mut default_index_counter)?;
+                let attributes = self.get_attributes(group, "extraction_text", attributes_suffix)?;
 
-                let ext = data::Extraction::new(key.clone(), text_val, extraction_index, group_index, attributes);
+                let ext = data::Extraction::new(
+                    extraction_class.to_string(),
+                    extraction_text,
+                    extraction_index,
+                    group_index,
+                    attributes,
+                );
                 processed.push(ext);
+            } else {
+                // Handle legacy format - treat each key as extraction_class and value as extraction_text
+                for (key, value) in group {
+                    // Skip index and attributes keys
+                    if let Some(suf) = index_suffix
+                        && key.ends_with(suf)
+                    {
+                        continue;
+                    }
+                    if let Some(suf) = attributes_suffix
+                        && key.ends_with(suf)
+                    {
+                        continue;
+                    }
+
+                    let text_val = self.convert_to_text(value)?;
+                    let extraction_index =
+                        self.get_extraction_index(group, key, index_suffix, &mut default_index_counter)?;
+                    let attributes = self.get_attributes(group, key, attributes_suffix)?;
+
+                    let ext = data::Extraction::new(key.clone(), text_val, extraction_index, group_index, attributes);
+                    processed.push(ext);
+                }
             }
         }
 

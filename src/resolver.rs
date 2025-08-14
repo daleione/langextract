@@ -300,11 +300,38 @@ impl Resolver {
                             for item in arr {
                                 if let Some(item_obj) = item.as_object() {
                                     for (key, value) in item_obj {
-                                        if !key.ends_with("_attributes") {
+                                        // Skip index and attributes keys
+                                        let should_skip = key.ends_with("_attributes")
+                                            || (self.extraction_index_suffix.is_some()
+                                                && key.ends_with(self.extraction_index_suffix.as_ref().unwrap()));
+
+                                        if !should_skip {
                                             let mut extraction_map = HashMap::new();
                                             extraction_map
                                                 .insert("extraction_class".to_string(), JsonValue::String(key.clone()));
                                             extraction_map.insert("extraction_text".to_string(), value.clone());
+
+                                            // Copy over related index and attributes fields
+                                            if let Some(index_suffix) = &self.extraction_index_suffix {
+                                                let index_key = format!("{}{}", key, index_suffix);
+                                                if let Some(index_value) = item_obj.get(&index_key) {
+                                                    extraction_map.insert(
+                                                        format!("extraction_text{}", index_suffix),
+                                                        index_value.clone(),
+                                                    );
+                                                }
+                                            }
+
+                                            if let Some(attr_suffix) = &self.extraction_attributes_suffix {
+                                                let attr_key = format!("{}{}", key, attr_suffix);
+                                                if let Some(attr_value) = item_obj.get(&attr_key) {
+                                                    extraction_map.insert(
+                                                        format!("extraction_text{}", attr_suffix),
+                                                        attr_value.clone(),
+                                                    );
+                                                }
+                                            }
+
                                             result.push(extraction_map);
                                         }
                                     }
